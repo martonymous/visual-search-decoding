@@ -31,32 +31,82 @@ io = launchHubServer(**iohub_config)
 eyetracker = io.devices.eyetracker
 
 # Experiment parameters
-num_objects = 16  # Total objects match grid size
-grid_size = 4  # Grid dimensions (4x4)
-grid_scaler = 16.0  # Grid spacing
-object_scaler = .6  # Object size
-target_present = False  # Whether the target is present
-color_difference = 0.99  # Degree of color differences (0-1)
-num_trials = 2  # Number of trials in the experiment
+grid_x = 8
+grid_y = 4
+num_objects = grid_x * grid_y
+grid_scaler = 15.0              # Grid spacing
+object_scaler = .5              # Object size
+
+target_present = True           # Whether the target is present
+color_difference = 192          # Degree of color differences
+num_trials = 5                  # Number of trials in the experiment
 
 # Target attributes
 target_attributes = {
-    "color": [1.0, 0.0, 0.0],  # RGB for red
+    "color": [255, 0, 0],
     "size": 2.5,
-    "opacity": 1.0, 
-    "masked": False,  # Target is not masked
+    "masked": False,
     "target": True,
+    "orientation": 0,
 }
 
 # Generate random distractor attributes
-base_color =    [0.5, 0.5, 0.5]  # Base gray color
-red =           [1.0, 0.0, 0.0]  # Red color
-blue =          [0.0, 0.0, 1.0]  # Blue color
-green =         [0.0, 1.0, 0.0]  # Green color
+base_color = [127, 127, 127]    # RGB for gray
+saturated_colors = [
+    (255, 0, 0),                # Red
+    (0, 255, 0),                # Green
+    (0, 0, 255),                # Blue
+    (255, 255, 0),              # Yellow
+    (255, 0, 255),              # Magenta
+    (0, 255, 255),              # Cyan
+    (255, 127, 0),              # Orange
+    (127, 0, 255),              # Purple
+    (0, 255, 127),              # Spring Green
+    (255, 0, 127),              # Deep Pink
+    (127, 255, 0),              # Chartreuse
+    (0, 127, 255),              # Sky Blue
+    (255, 51, 51),              # Bright Red
+    (51, 255, 51),              # Bright Green
+    (51, 51, 255),              # Bright Blue
+]
 
-sizes = [3.0, 4.0, 5.0, 6.0]
-opacities = [0.8, 0.9, 1.0]
+sizes = [2.0, 2.5, 3.0, 3.5, 4.0]
+size_range = [2.0, 4.0]
 orientations = [0, 45, 90, 135, 180, 225, 270, 315]
+orientation_range = [0, 360]
+
+def get_convex_curve(start, end, convexity=0.9, direction=1, num_points=10):
+    """
+    Generate a convex curve between two points using a quadratic Bézier curve.
+
+    Parameters:
+        start (tuple): (x, y) coordinates of the start vertex.
+        end (tuple): (x, y) coordinates of the end vertex.
+        convexity (float): How convex the curve should be (0 = straight line).
+        direction (int): 1 for outward convexity, -1 for inward convexity.
+        num_points (int): Number of points along the curve.
+
+    Returns:
+        List of (x, y) points forming the convex curve.
+    """
+    start = np.array(start)
+    end = np.array(end)
+
+    # Midpoint of the line segment
+    mid = (start + end) / 2
+
+    # Compute perpendicular vector
+    perp_vector = np.array([-(end[1] - start[1]), end[0] - start[0]])
+    perp_vector = perp_vector / np.linalg.norm(perp_vector)  # Normalize
+
+    # Move midpoint in the perpendicular direction by 'convexity' factor
+    control = mid + perp_vector * convexity * direction
+
+    # Quadratic Bézier curve formula
+    t_vals = np.linspace(0, 1, num_points)
+    curve_points = [(1 - t)**2 * start + 2 * (1 - t) * t * control + t**2 * end for t in t_vals]
+
+    return curve_points
 
 def create_L_stimulus(attributes, pos):
     """
@@ -123,51 +173,54 @@ def create_diamond_stimulus(attributes, pos):
     The exact parameters of the shape are determined by the attributes provided.
     """
 
-    # Define the vertices for a diamond shape
+    convexity = attributes.get("convexity", 1.5)  # Adjust curvature
+    direction = attributes.get("direction", 1)   # 1 for outward, -1 for inward
+    elongation_factor = attributes.get("elongation", 1.5)
+
     diamond_vertices = [
         (0.0, 1.5),  # Top
         (.75, 0.0),  # Right
         (0.0, -1.0), # Bottom
         (-.75, 0.0), # Left
     ]
+    diamond_vertices = [(x * elongation_factor, y) for x, y in diamond_vertices]
+    diamond_vertices = [(x * attributes["size"], y * attributes["size"]) for x, y in diamond_vertices]
 
-    # Elongate the diamond shape if specified
-    elongation_factor = attributes.get("elongation", 1.5)  # Default elongation factor
-    all_vertices = [(x * elongation_factor, y) for x, y in diamond_vertices]
-
-    # Scale the shape based on the size attribute
-    all_vertices = [(x * attributes["size"], y * attributes["size"]) for x, y in all_vertices]
-
-    # Center the object for rotation accuracy
+    # Center the object for rotations
     # all_vertices = [(x - 0.0, y - 0.0) for x, y in all_vertices]
 
-    # Create a ShapeStim object with the specified attributes
-    stim = visual.ShapeStim(
+    shape_points = []
+    for i in range(len(diamond_vertices)):
+        start = diamond_vertices[i]
+        end = diamond_vertices[(i + 1) % len(diamond_vertices)]
+        curve_points = get_convex_curve(start, end, convexity, direction)
+        _ = [shape_points.append(x) for x in curve_points]
+    
+    shape = visual.ShapeStim(
         win,
-        vertices=all_vertices,
+        vertices=shape_points,
+        lineColor="black",
+        lineWidth=2,
         fillColor=attributes["color"],
-        lineColor=None,
         pos=pos,
         ori=attributes["orientation"],
-        opacity=attributes["opacity"],
     )
 
     # Create lines connecting each vertex to the center
-    center_point = (random.uniform(-2.5, 2.5), random.uniform(-2.5, 2.5))
+    center_point = (random.uniform(-2, 2), random.uniform(-2, 2))
     line_stims = []
-    for vertex in all_vertices:
+    for vertex in diamond_vertices:
         line_stim = visual.ShapeStim(
             win,
+            pos=pos,
             vertices=[center_point, vertex],
             lineColor="black",
-            lineWidth=2,  # Adjust thickness of the lines
-            pos=pos,
+            lineWidth=2,
             ori=attributes["orientation"],
-            opacity=attributes["opacity"],
         )
         line_stims.append(line_stim)
 
-    return [stim] + line_stims
+    return [shape] + line_stims
 
 def create_masks(attributes, pos):
     stimuli = []
@@ -217,13 +270,19 @@ def create_checkered_noise_mask(win, radius, square_size, pos=(0, 0)):
             # Check if the square's center is within the circular radius
             if (square_x - pos[0])**2 + (square_y - pos[1])**2 <= radius**2:
                 # Randomly generate a color for the square
-                if random.random() < 0.5:
+                if random.random() < 0.4:
                     if random.random() < 0.5:
-                        color = [0, 0, 0]
+                        color = "black"
                     else:
-                        color = [10, 10, 10]
+                        color = "white"
                 else:
-                    color = [random.uniform(0, 1), random.uniform(0, 1), random.uniform(0, 1)]
+                    var = random.random()
+                    if var < 0.33:
+                        color = [random.uniform(0.25, 1), random.uniform(0, .5), random.uniform(0, .5)]
+                    elif var < 0.66:
+                        color = [random.uniform(0, .5), random.uniform(0.25, 1), random.uniform(0, .5)]
+                    else:
+                        color = [random.uniform(0, .5), random.uniform(0, .5), random.uniform(0.25, 1)]
                 
                 # Create a square stimulus
                 square = visual.Rect(
@@ -237,13 +296,8 @@ def create_checkered_noise_mask(win, radius, square_size, pos=(0, 0)):
                 )
                 squares.append(square)
 
-    # Draw the squares
     for square in squares:
         square.draw()
-
-    # # Optionally add a circular boundary (not required)
-    # boundary = visual.Circle(win, radius=radius, edges=128, lineColor="black", pos=pos)
-    # boundary.draw()
 
 def generate_stimuli(stimulus_function, jitter: float = 3.0):
     """Generate target and distractor stimuli arranged in a grid."""
@@ -251,32 +305,43 @@ def generate_stimuli(stimulus_function, jitter: float = 3.0):
 
     # Generate grid positions
     grid_positions = [
-        [(x + 0.5 - (grid_size / 2)) * grid_scaler, (y + 0.5 - (grid_size / 2)) * grid_scaler]
-        for x in range(grid_size)
-        for y in range(grid_size)
+        [(x + 0.5 - (grid_x / 2)) * grid_scaler, (y + 0.5 - (grid_y / 2)) * grid_scaler]
+        for x in range(grid_x)
+        for y in range(grid_y)
     ]
     random.shuffle(grid_positions)
 
-    target_pos = grid_positions.pop() if target_present else None
+    target_pos = grid_positions[0] if target_present else None
 
     for i, pos in enumerate(grid_positions):
         for j, val in enumerate(pos):
             pos[j] = val + random.uniform(-jitter, jitter)
 
         if target_present and i == 0:
+            target_attributes = {
+                "color": random.choice(saturated_colors),
+                "size": random.randint(size_range[0], size_range[1]),
+                "masked": False,
+                "orientation": random.choice(orientations),
+                "target": True}
             stimuli.extend(stimulus_function(target_attributes, target_pos))
         else:
+            if target_present:
+                target_color = target_attributes["color"]
+            else:
+                target_color = random.choice(saturated_colors)
+
             distractor_color = [
-                min(1.0, max(0.0, base_color[0] + random.uniform(-color_difference, color_difference))),
-                min(1.0, max(0.0, base_color[1] + random.uniform(-color_difference, color_difference))),
-                min(1.0, max(0.0, base_color[2] + random.uniform(-color_difference, color_difference))),
+                max(min((int(target_color[0] + random.uniform(-color_difference, color_difference)))/255, 1.0), 0.0),
+                max(min((int(target_color[1] + random.uniform(-color_difference, color_difference)))/255, 1.0), 0.0),
+                max(min((int(target_color[2] + random.uniform(-color_difference, color_difference)))/255, 1.0), 0.0),
             ]
+            print(distractor_color)
             distractor_attributes = {
                 "color": distractor_color,
                 "size": random.choice(sizes),
-                "opacity": random.choice(opacities),
-                "masked": random.choice([True, False]),  # Randomly decide if the stimulus is masked
                 "orientation": random.choice(orientations),
+                "masked": False,
                 "target": False,
             }
             stimuli.extend(stimulus_function(distractor_attributes, pos))
@@ -300,7 +365,7 @@ def learning_phase():
     """
 
     # Parameters for the learning phase
-    num_learning_trials = 10
+    num_learning_trials = 1
     stimulus_duration = 0.5  # Duration to show the stimulus in seconds
     mask_duration = 0.5  # Duration of the noise mask
     fixation_duration = 0.5  # Duration of the fixation cross
@@ -310,7 +375,7 @@ def learning_phase():
     for _ in range(num_learning_trials):
         # Step 1: Present the initial stimulus
         attributes = {
-            "color": random.choice([red, blue, green]),
+            "color": random.choice(saturated_colors),
             "size": random.choice(sizes),
             "opacity": 1.0,
             "orientation": random.choice(orientations),
@@ -326,7 +391,7 @@ def learning_phase():
         # Step 2: Present the noise mask
         # Parameters for the noise mask
         mask_radius = 25.0  # Radius of the circular area
-        square_size = 1.5  # Size of individual squares
+        square_size = 1.25  # Size of individual squares
         mask_position = (0.0, 0.0)  # Center position of the mask
 
         # Draw the checkered noise mask
@@ -347,9 +412,9 @@ def learning_phase():
         else:
             second_attributes = {
                 "color": [min(1.0, max(0.0, c + random.uniform(-similarity_threshold, similarity_threshold))) for c in attributes["color"]],
-                "size": attributes["size"] * random.uniform(0.9, 1.1),
+                "size": attributes["size"] * random.uniform(1.0, 4.0),
                 "opacity": attributes["opacity"],
-                "orientation": (attributes["orientation"] + random.choice([45, 90, 135])) % 360,
+                "orientation": (attributes["orientation"] + random.choice(orientations)) % 360,
                 "elongation": attributes["elongation"] * random.uniform(0.9, 1.1),
             }
         second_stimulus = create_diamond_stimulus(second_attributes, pos)
@@ -384,13 +449,10 @@ def run_trial(trial_num):
     """Run a single visual search trial."""
 
     # Generate stimuli
-    if trial_num % 2 == 0:
-        stimuli, data = generate_stimuli(create_diamond_stimulus)
-    else:
-        stimuli, data = generate_stimuli(create_L_stimulus)
+    stimuli, data = generate_stimuli(create_diamond_stimulus)
 
     # Show fixation cross
-    fixation = visual.TextStim(win, text="+", color="white")
+    fixation = visual.TextStim(win, text="+", color="white", height=2.0)
     fixation.draw()
     win.flip()
     core.wait(0.1)
@@ -426,7 +488,7 @@ def run_trial(trial_num):
 
 if __name__ == "__main__":
     # Learning phase
-    learning_phase()
+    # learning_phase()
 
     # Run the experiment
     for trial in range(1, num_trials + 1):
