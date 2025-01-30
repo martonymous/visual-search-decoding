@@ -256,7 +256,7 @@ class Experiment:
 
         return stimuli
 
-    def create_checkered_noise_mask(self, radius, square_size, pos=(0, 0)):
+    def create_checkered_noise_mask(self, win, radius, square_size, pos=(0, 0)):
         """
         Creates and draws a checkered noise mask that fills a circular area.
 
@@ -375,14 +375,14 @@ class Experiment:
         """
 
         # Parameters for the learning phase
-        num_learning_trials = 1
+        num_learning_trials = 4
         stimulus_duration = 0.5  # Duration to show the stimulus in seconds
         mask_duration = 0.5  # Duration of the noise mask
         fixation_duration = 0.5  # Duration of the fixation cross
         response_duration = 1.5  # Time allowed for participant response
         similarity_threshold = 0.2  # Degree of dissimilarity for "different" stimuli
 
-        for _ in range(num_learning_trials):
+        for trial_num in range(num_learning_trials):
             # Step 1: Present the initial stimulus
             attributes = {
                 "color": random.choice(self.saturated_colors),
@@ -417,22 +417,51 @@ class Experiment:
             core.wait(fixation_duration)
 
             # Step 4: Present the second stimulus
-            is_same = random.choice([True, False])  # Decide if the stimulus is the same or dissimilar
-            if is_same:
-                second_attributes = attributes
+            if trial_num % 2 == 1:
+                is_same = random.choice([True, False])  # Decide if the stimulus is the same or dissimilar
+                if is_same:
+                    second_attributes = attributes
+                else:
+                    second_attributes = {
+                        "color": [min(1.0, max(0.0, c + random.uniform(-similarity_threshold, similarity_threshold))) for c in attributes["color"]],
+                        "size": attributes["size"] * random.uniform(.75, 1.25),
+                        "opacity": attributes["opacity"],
+                        "orientation": (attributes["orientation"] + random.choice(self.orientations)) % 360,
+                        "elongation_x": attributes["elongation_x"] * random.uniform(0.75, 1.5),
+                        "elongation_y": attributes["elongation_y"] * random.uniform(0.75, 1.5),
+                    }
+                second_stimulus = self.create_diamond_stimulus(second_attributes, pos)
+                for stim in second_stimulus:
+                    stim.draw()
+                self.win.flip()
             else:
-                second_attributes = {
-                    "color": [min(1.0, max(0.0, c + random.uniform(-similarity_threshold, similarity_threshold))) for c in attributes["color"]],
-                    "size": attributes["size"] * random.uniform(1.0, 4.0),
+                correct_side = random.choice(["left", "right"])  # Randomize correct answer
+
+                # Create the more similar stimulus
+                similar_attributes = attributes.copy()
+                similar_attributes["size"] *= random.uniform(0.9, 1.1)
+                similar_attributes["orientation"] = (attributes["orientation"] + random.uniform(-10, 10)) % 360
+                similar_attributes["elongation_x"] *= random.uniform(0.9, 1.1)
+                similar_attributes["elongation_y"] *= random.uniform(0.9, 1.1)
+
+                # Create the more different stimulus
+                different_attributes = {
+                    "color": [min(1.0, max(0.0, c + random.uniform(-similarity_threshold * 2, similarity_threshold * 2))) for c in attributes["color"]],
+                    "size": attributes["size"] * random.uniform(0.6, 1.4),
                     "opacity": attributes["opacity"],
                     "orientation": (attributes["orientation"] + random.choice(self.orientations)) % 360,
-                    "elongation_x": attributes["elongation_x"] * random.uniform(0.75, 1.5),
-                    "elongation_y": attributes["elongation_y"] * random.uniform(0.75, 1.5),
+                    "elongation_x": attributes["elongation_x"] * random.uniform(0.6, 1.4),
+                    "elongation_y": attributes["elongation_y"] * random.uniform(0.6, 1.4),
                 }
-            second_stimulus = self.create_diamond_stimulus(second_attributes, pos)
-            for stim in second_stimulus:
-                stim.draw()
-            self.win.flip()
+
+                # Assign positions
+                left_stimulus = self.create_diamond_stimulus(similar_attributes, (-0.5, 0.0)) if correct_side == "left" else self.create_diamond_stimulus(different_attributes, (-4.5, 0.0))
+                right_stimulus = self.create_diamond_stimulus(similar_attributes, (0.5, 0.0)) if correct_side == "right" else self.create_diamond_stimulus(different_attributes, (4.5, 0.0))
+
+                # Draw both stimuli
+                for stim in left_stimulus + right_stimulus:
+                    stim.draw()
+                self.win.flip()
 
             # Step 5: Wait for participant response
             response = None
@@ -446,9 +475,10 @@ class Experiment:
             # Evaluate response
             correct_response = "s" if is_same else "d"
             feedback_text = "Correct!" if response == correct_response else "Incorrect!"
+            feedback_color = "green" if response == correct_response else "red"
             if response is None:
-                feedback_text = "Too slow!"
-            feedback = visual.TextStim(self.win, text=feedback_text, color="white")
+                feedback_text = "Response not recorded in time. Try again."
+            feedback = visual.TextStim(self.win, text=feedback_text, color=feedback_color)
             feedback.draw()
             self.win.flip()
             core.wait(1.0)
@@ -588,6 +618,11 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+
+        #save image
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("convexity.png")
+
         event.waitKeys(keyList=["space"])
 
         # center point display 
@@ -606,6 +641,9 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("center.png")
+
         event.waitKeys(keyList=["space"])
 
         # elongation display
@@ -625,6 +663,9 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("elongation.png")
+
         event.waitKeys(keyList=["space"])
 
         # orientation + convexity display
@@ -643,6 +684,9 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("orientation_convexity.png")
+
         event.waitKeys(keyList=["space"])
 
         # orientation + center display
@@ -661,6 +705,9 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("orientation_center.png")
+
         event.waitKeys(keyList=["space"])
         
         # center + conexity display 
@@ -680,6 +727,9 @@ class Experiment:
                 for stim in stimuli:
                     stim.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("center_convexity.png")
+
         event.waitKeys(keyList=["space"])
 
 if __name__ == "__main__":
