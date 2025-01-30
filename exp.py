@@ -37,11 +37,14 @@ class Experiment:
         self.grid_x = 8
         self.grid_y = 4
         self.num_objects = self.grid_x * self.grid_y
-        self.grid_scaler = 15.0              # Grid spacing
-        self.object_scaler = .5              # Object size
+        self.grid_scaler = 12.0              # Grid spacing
+        self.object_scaler = 1.25            # Object size
+        self.center_scaler = 1.2             # Center offset
+        self.center_x = 0.5  * self.object_scaler * self.center_scaler
+        self.center_y = 0.75 * self.object_scaler * self.center_scaler
 
         self.target_present = True           # Whether the target is present
-        self.color_difference = 255           # Degree of color differences
+        self.color_difference = 255          # Degree of color differences
         self.num_trials = 5                  # Number of trials in the experiment
 
         # Target attributes
@@ -74,7 +77,7 @@ class Experiment:
         ]
 
         self.sizes = [2.0, 2.5, 3.0, 3.5, 4.0]
-        self.orientations = [0, 45, 90, 135, 180, 225, 270, 315]
+        self.orientations = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
         self.size_range = [3.0, 6.0]
         self.orientation_range = [0, 360]
@@ -179,9 +182,11 @@ class Experiment:
         The exact parameters of the shape are determined by the attributes provided.
         """
 
-        convexity = attributes.get("convexity", 1.5)  # Adjust curvature
+        convexity = attributes.get("convexity", .2)  # Adjust curvature
         direction = attributes.get("direction", 1)   # 1 for outward, -1 for inward
-        elongation_factor = attributes.get("elongation", 1.5)
+        elongation_x = attributes.get("elongation_x", 1.2)
+        elongation_y = attributes.get("elongation_y", .9)
+        center_point = attributes.get("center", (0.0, 0.0))
 
         diamond_vertices = [
             (0.0, 1.5),  # Top
@@ -189,8 +194,8 @@ class Experiment:
             (0.0, -1.0), # Bottom
             (-.75, 0.0), # Left
         ]
-        diamond_vertices = [(x * elongation_factor, y) for x, y in diamond_vertices]
-        diamond_vertices = [(x * attributes["size"], y * attributes["size"]) for x, y in diamond_vertices]
+        diamond_vertices = [(x * elongation_x, y * elongation_y) for x, y in diamond_vertices]
+        diamond_vertices = [(x * attributes["size"] * self.object_scaler, y * attributes["size"] * self.object_scaler) for x, y in diamond_vertices]
 
         # Center the object for rotations
         # all_vertices = [(x - 0.0, y - 0.0) for x, y in all_vertices]
@@ -213,7 +218,6 @@ class Experiment:
         )
 
         # Create lines connecting each vertex to the center
-        center_point = (random.uniform(-1.5, 1.5), random.uniform(-2, 2))
         line_stims = []
         for vertex in diamond_vertices:
             line_stim = visual.ShapeStim(
@@ -331,6 +335,7 @@ class Experiment:
                     "size": random.randint(self.size_range[0], self.size_range[1]),
                     "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
                     "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                    "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
                     "masked": False,
                     "target": True}
                 stimuli.extend(stimulus_function(target_attributes, target_pos))
@@ -345,6 +350,7 @@ class Experiment:
                     "size": random.randint(self.size_range[0], self.size_range[1]),
                     "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
                     "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                    "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
                     "masked": False,
                     "target": False,
                 }
@@ -383,7 +389,8 @@ class Experiment:
                 "size": random.choice(self.sizes),
                 "opacity": 1.0,
                 "orientation": random.choice(self.orientations),
-                "elongation": random.uniform(1.0, 2.0),
+                "elongation_x": random.uniform(0.75, 2.0),
+                "elongation_y": random.uniform(0.75, 2.0),
             }
             pos = (0.0, 0.0)  # Central position for simplicity
             initial_stimulus = self.create_diamond_stimulus(attributes, pos)
@@ -419,7 +426,8 @@ class Experiment:
                     "size": attributes["size"] * random.uniform(1.0, 4.0),
                     "opacity": attributes["opacity"],
                     "orientation": (attributes["orientation"] + random.choice(self.orientations)) % 360,
-                    "elongation": attributes["elongation"] * random.uniform(0.9, 1.1),
+                    "elongation_x": attributes["elongation_x"] * random.uniform(0.75, 1.5),
+                    "elongation_y": attributes["elongation_y"] * random.uniform(0.75, 1.5),
                 }
             second_stimulus = self.create_diamond_stimulus(second_attributes, pos)
             for stim in second_stimulus:
@@ -490,10 +498,198 @@ class Experiment:
         self.win.flip()
         event.waitKeys(keyList=["space"])
 
+    def stimulus_variability(self):
+        """
+        Generate a series of stimuli with varying attributes for visual inspection.
+        """
+        self.grid_x = 9
+        self.grid_y = 5
+
+        red_color_range = [
+            [255, 128, 0],
+            [255, 96, 0],
+            [255, 64, 0],
+            [255, 32, 0],
+            [255, 0, 0],
+            [255, 0, 32],
+            [255, 0, 64],
+            [255, 0, 96],
+            [255, 0, 128]
+        ]
+        green_color_range = [
+            [224, 255, 0],
+            [160, 255, 0],
+            [96, 255, 0],
+            [48, 255, 0],
+            [0, 255, 0],
+            [0, 255, 48],
+            [0, 255, 96],
+            [0, 255, 160],
+            [0, 255, 224]
+        ]
+        blue_color_range = [
+            [0, 128, 255],
+            [0, 96, 255],
+            [0, 64, 255],
+            [0, 32, 255],
+            [0, 0, 255],
+            [32, 0, 255],
+            [64, 0, 255],
+            [96, 0, 255],
+            [128, 0, 255]
+        ]
+        yellow_color_range = [
+            [255, 128, 0],
+            [255, 160, 0],
+            [255, 192, 0],
+            [255, 224, 0],
+            [255, 255, 0],
+            [224, 255, 0],
+            [192, 255, 0],
+            [160, 255, 0],
+            [128, 255, 0]
+        ]
+        orange_color_range = [
+            [255, 255, 0],
+            [255, 224, 0],
+            [255, 192, 0],
+            [255, 160, 0],
+            [255, 128, 0], 
+            [255, 96, 0],
+            [255, 64, 0],
+            [255, 32, 0],
+            [255, 0, 0]
+        ]
+        purple_color_range = [
+            [255, 0, 128],
+            [255, 0, 160],
+            [255, 0, 192],
+            [255, 0, 224],
+            [255, 0, 255],
+            [224, 0, 255],
+            [192, 0, 255],
+            [160, 0, 255],
+            [128, 0, 255]
+        ]
+
+        # convexity display
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in red_color_range[x]],
+                    "size": self.sizes[y],
+                    "convexity": self.convex_range[0] + (self.convex_range[1] - self.convex_range[0]) * (x / (self.grid_x - 1)),
+                    "opacity": 1.0,
+                    "orientation": self.orientations[0],
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+
+        # center point display 
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in orange_color_range[x]],
+                    "size": self.sizes[y],
+                    "center": (self.center_x * (y - 2) * 0.35*self.sizes[y], (self.center_y * (x - 4) * 0.15*self.sizes[y])),
+                    "opacity": 1.0,
+                    "orientation": self.orientations[0],
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+
+        # elongation display
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in yellow_color_range[x]],
+                    "size": self.sizes[y],
+                    "elongation_x": .9 + (x / (self.grid_x - 1))/2,
+                    "elongation_y": .6 + (y / (self.grid_y - 1))/2,
+                    "opacity": 1.0,
+                    "orientation": self.orientations[0],
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+
+        # orientation + convexity display
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in green_color_range[x]],
+                    "size": self.sizes[y],
+                    "convexity": self.convex_range[0] + (self.convex_range[1] - self.convex_range[0]) * (x / (self.grid_x - 1)),
+                    "orientation": self.orientations[x],
+                    "opacity": 1.0,
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+
+        # orientation + center display
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in blue_color_range[x]],
+                    "size": self.sizes[y],
+                    "center": (self.center_x * (y - 2) * 0.35*self.sizes[y], (self.center_y * (x - 4) * 0.15*self.sizes[y])),
+                    "orientation": self.orientations[x],
+                    "opacity": 1.0,
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+        
+        # center + conexity display 
+        for x in range(self.grid_x):
+            for y in range(self.grid_y):
+                attributes = {
+                    "color": [(z-y*32)/255 for z in purple_color_range[x]],
+                    "size": self.sizes[y],
+                    "center": (self.center_x * (y - 2) * 0.35*self.sizes[y], (self.center_y * (x - 4) * 0.15*self.sizes[y])),
+                    "convexity": self.convex_range[0] + (self.convex_range[1] - self.convex_range[0]) * (x / (self.grid_x - 1)),
+                    "opacity": 1.0,
+                    "orientation": self.orientations[0],
+                }
+
+                pos = ((x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler)
+                stimuli = self.create_diamond_stimulus(attributes, pos)
+                for stim in stimuli:
+                    stim.draw()
+        self.win.flip()
+        event.waitKeys(keyList=["space"])
+
 if __name__ == "__main__":
     exp = Experiment()
+
+    # Display stimulus variability
+    exp.stimulus_variability()
+
     # Learning phase
-    # learning_phase()
+    exp.learning_phase()
 
     # Run the experiment
     for trial in range(1, exp.num_trials + 1):
