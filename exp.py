@@ -7,11 +7,11 @@ import numpy as np
 
 
 class Experiment:
-    def __init__(self):
+    def __init__(self, num_trials=5):
         # =================== Setup ======================
         # Monitor configuration
         self.monitor = monitors.Monitor("testMonitor", width=53.0, distance=60.0)  # Adjust for your setup
-        self.win = visual.Window(size=(3440, 1440), monitor=self.monitor, units="deg", fullscr=False, color="gray")
+        self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
         self.mouse = event.Mouse(win=self.win)
 
         # # Eye-tracking setup (simulation mode)
@@ -34,11 +34,11 @@ class Experiment:
         self.eyetracker = self.io.devices.eyetracker
 
         # Experiment parameters
-        self.grid_x = 8
+        self.grid_x = 7
         self.grid_y = 4
         self.num_objects = self.grid_x * self.grid_y
         self.grid_scaler = 12.0              # Grid spacing
-        self.object_scaler = 1.25            # Object size
+        self.object_scaler = 1.0            # Object size
         self.center_scaler = 1.2             # Center offset
         self.center_x = 0.5  * self.object_scaler * self.center_scaler
         self.center_y = 0.75 * self.object_scaler * self.center_scaler
@@ -76,10 +76,12 @@ class Experiment:
             (51, 51, 255),              # Bright Blue
         ]
 
+        # discrete values for size and orientation
         self.sizes = [2.0, 2.5, 3.0, 3.5, 4.0]
         self.orientations = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
-        self.size_range = [3.0, 6.0]
+        # range values for cointinuous attributes
+        self.size_range = [3.0, 5.0]
         self.orientation_range = [0, 360]
         self.convex_range = [-1.5, 2.0]
 
@@ -309,8 +311,9 @@ class Experiment:
         for square in squares:
             square.draw()
 
-    def generate_stimuli(self, stimulus_function, jitter: float = 3.0):
+    def generate_stimuli(self, stimulus_function, target_present = True, jitter: float = 3.0):
         """Generate target and distractor stimuli arranged in a grid."""
+        target = []
         stimuli = []
 
         # Generate grid positions
@@ -339,9 +342,22 @@ class Experiment:
                     "masked": False,
                     "target": True}
                 stimuli.extend(stimulus_function(target_attributes, target_pos))
+                target.extend(stimulus_function(target_attributes, (0,0)))
             else:
-                if not self.target_present:
+                # do only once
+                if i == 0:
                     self.target_color = random.choice(self.saturated_colors)
+                    fake_target_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
+                    fake_target_attributes = {
+                        "color": fake_target_color,
+                        "size": random.randint(self.size_range[0], self.size_range[1]),
+                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "masked": False,
+                        "target": False,
+                    }
+                    target.extend(stimulus_function(fake_target_attributes, (0,0)))
 
                 distractor_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
                 print(distractor_color)
@@ -355,13 +371,13 @@ class Experiment:
                     "target": False,
                 }
                 stimuli.extend(stimulus_function(distractor_attributes, pos))
-                data = {
-                    "target_present": self.target_present,
-                    "target_pos": target_pos,
-                    "distractor_attributes": distractor_attributes,
-                    "distractor_pos": pos,
-                }
-        return stimuli, data
+            # data = {
+            #     "target_present": self.target_present,
+            #     "target_pos": target_pos,
+            #     "distractor_attributes": distractor_attributes,
+            #     "distractor_pos": pos,
+            # }
+        return stimuli, target
 
     def learning_phase(self):
         """
@@ -489,28 +505,69 @@ class Experiment:
 
     def run_trial(self, trial_num):
         """Run a single visual search trial."""
+        
+        # Generate target and stimuli
+        stimuli, target = self.generate_stimuli(self.create_diamond_stimulus, target_present=True)
 
-        # Generate stimuli
-        stimuli, data = self.generate_stimuli(self.create_diamond_stimulus)
+        # Display instructions
+        instructions = ("In this task, you will first see a target object. Try to remember its shape and color.\n\n"
+                        "Next, a brief visual mask will appear. After the mask disappears, a fixation cross will appear. Focus your gaze on it. \n\n"
+                        "After a short pause, a grid of objects will appear.\n\n"
+                        "Search (with your eyes) for the target object within the grid. Once you find it, fixate your gaze on it and press the Q button.\n"
+                        "If you don't find it, keep searching until the trial ends.\n\n"
+                        "Press SPACE to begin.")
 
+        visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=60).draw()
+        self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("instructions.png")
+
+        event.waitKeys(keyList=["space"])
+
+        # Show target object
+        for stim in target:
+            stim.draw()
+        self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("target.png")
+        core.wait(1.0)
+    
+    # Parameters for the noise mask
+        mask_radius = 20.0  # Radius of the circular area
+        square_size = 1.2  # Size of individual squares
+        mask_position = (0.0, 0.0)  # Center position of the mask
+
+        # Draw the checkered noise mask
+        self.create_checkered_noise_mask(self.win, radius=mask_radius, square_size=square_size, pos=mask_position)
+        self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("mask.png")
+        core.wait(.2)
+        
         # Show fixation cross
-        fixation = visual.TextStim(self.win, text="+", color="white", height=2.0)
+        fixation = visual.TextStim(self.win, text="+", color="white", height=6.0)
         fixation.draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("fixation.png")
         core.wait(0.1)
 
         # Start eye-tracking recording
         self.eyetracker.setRecordingState(True)
-        stime = getTime()
-        while getTime() - stime < 1.0:
-            for e in self.eyetracker.getEvents():
-                print(e)
 
         # Display stimuli
         for stimgroup in stimuli:
             for stim in stimuli:
                 stim.draw()  # Draw each component of the stimulus group
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("stimulus.png")
+
+        # TODO: Data recording
+        stime = getTime()
+        while getTime() - stime < 1.0:
+            for e in self.eyetracker.getEvents():
+                print(e)
 
         # Wait for participant to click
         mouse = event.Mouse(win=self.win)
@@ -526,6 +583,8 @@ class Experiment:
         # Wait for participant to press space to proceed
         visual.TextStim(self.win, text=f"Trial {trial_num} complete. Press SPACE to continue.", color="white").draw()
         self.win.flip()
+        self.win.getMovieFrame()
+        self.win.saveMovieFrames("completed.png")
         event.waitKeys(keyList=["space"])
 
     def stimulus_variability(self):
@@ -733,13 +792,13 @@ class Experiment:
         event.waitKeys(keyList=["space"])
 
 if __name__ == "__main__":
-    exp = Experiment()
+    exp = Experiment(num_trials=4)
 
     # Display stimulus variability
-    exp.stimulus_variability()
+    # exp.stimulus_variability()
 
     # Learning phase
-    exp.learning_phase()
+    # exp.learning_phase()
 
     # Run the experiment
     for trial in range(1, exp.num_trials + 1):
