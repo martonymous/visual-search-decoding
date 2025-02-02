@@ -1,37 +1,37 @@
 from psychopy import visual, event, core, monitors
 from psychopy.iohub import launchHubServer
 from psychopy.core import getTime, wait
+from titta import Titta
 
+import os
+import sys
 import random
 import numpy as np
-
+import datetime
+import uuid
 
 class Experiment:
-    def __init__(self, num_trials=5):
+    def __init__(self, num_trials=5, eye_tracking=False):
         # =================== Setup ======================
         # Monitor configuration
         self.monitor = monitors.Monitor("testMonitor", width=53.0, distance=60.0)  # Adjust for your setup
         self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
         self.mouse = event.Mouse(win=self.win)
 
-        # # Eye-tracking setup (simulation mode)
-        self.iohub_config = {
-            "eyetracker.hw.mouse.EyeTracker": {},
-        }
-
-        # setup tobii eyetracker
-        # iohub_config = {
-        #     "eyetracker.hw.tobii.EyeTracker": {
-        #         "name": "tracker",
-        #         "runtime_settings": {
-        #             "sampling_rate": 120,
-        #             "track_eyes": "both",
-        #             "events_enabled": True,
-        #         },
-        #     },
-        # }
-        self.io = launchHubServer(**self.iohub_config)
-        self.eyetracker = self.io.devices.eyetracker
+        """ Eye-tracking setup """
+        # simulation mode
+        if not eye_tracking:
+            self.iohub_config = {
+                "eyetracker.hw.mouse.EyeTracker": {},
+            }
+            self.io = launchHubServer(**self.iohub_config)
+            self.eyetracker = self.io.devices.tracker
+        # tobii eyetracker
+        else:
+            self.et_settings = Titta.get_defaults('Tobii Pro X3-120')
+            self.eyetracker = Titta.Connect(self.et_settings)
+            self.eyetracker.init()
+            self.eyetracker.calibrate(self.win)
 
         # Experiment parameters
         self.grid_x = 7
@@ -379,7 +379,7 @@ class Experiment:
             # }
         return stimuli, target
 
-    def learning_phase(self):
+    def measure_performance(self):
         """
         Implements the learning phase of the task:
         1. Present a stimulus for a short duration.
@@ -391,14 +391,14 @@ class Experiment:
         """
 
         # Parameters for the learning phase
-        num_learning_trials = 4
+        num_trials = 4
         stimulus_duration = 0.5  # Duration to show the stimulus in seconds
         mask_duration = 0.5  # Duration of the noise mask
         fixation_duration = 0.5  # Duration of the fixation cross
         response_duration = 1.5  # Time allowed for participant response
         similarity_threshold = 0.2  # Degree of dissimilarity for "different" stimuli
 
-        for trial_num in range(num_learning_trials):
+        for trial_num in range(num_trials):
             # Step 1: Present the initial stimulus
             attributes = {
                 "color": random.choice(self.saturated_colors),
@@ -503,25 +503,29 @@ class Experiment:
             self.win.flip()
             core.wait(0.5)
 
-    def run_trial(self, trial_num):
+    def run_trial(self, save_destination: str, trial_num):
         """Run a single visual search trial."""
+
+        trial_id = f"{trial_num}_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        os.makedirs(f"{save_destination}/{trial_id}")
         
         # Generate target and stimuli
         stimuli, target = self.generate_stimuli(self.create_diamond_stimulus, target_present=True)
 
         # Display instructions
         instructions = ("In this task, you will first see a target object. Try to remember its shape and color.\n\n"
-                        "Next, a brief visual mask will appear. After the mask disappears, a fixation cross will appear. Focus your gaze on it. \n\n"
-                        "After a short pause, a grid of objects will appear.\n\n"
-                        "Search (with your eyes) for the target object within the grid. Once you find it, fixate your gaze on it and press the Q button.\n"
-                        "If you don't find it, keep searching until the trial ends.\n\n"
-                        "Press SPACE to begin.")
+                        "Next, a brief visual mask will appear. After which a fixation cross will be shown. Focus your gaze on it. \n\n"
+                        "After a short pause, a grid of objects will appear.\n\n")
+        bold_instructions = ("Search (with your eyes) for the target object within the grid. Once you find it,"
+                             "fixate your gaze on it and press the Q button.\n")
+        instructions_2 = ("If you don't find it, keep searching until the trial ends.\n\n"
+                         "You may press SPACE to begin.")
 
-        visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=60).draw()
+        visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=60, pos=(0,6)).draw()
+        visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=1.5, wrapWidth=60).draw()
+        visual.TextStim(self.win, text=instructions_2, color="white", height=1.5, wrapWidth=60, pos=(0,-6)).draw()
+
         self.win.flip()
-        self.win.getMovieFrame()
-        self.win.saveMovieFrames("instructions.png")
-
         event.waitKeys(keyList=["space"])
 
         # Show target object
@@ -529,7 +533,7 @@ class Experiment:
             stim.draw()
         self.win.flip()
         self.win.getMovieFrame()
-        self.win.saveMovieFrames("target.png")
+        self.win.saveMovieFrames(f"{save_destination}/{trial_id}/target.png")
         core.wait(1.0)
     
     # Parameters for the noise mask
@@ -541,19 +545,17 @@ class Experiment:
         self.create_checkered_noise_mask(self.win, radius=mask_radius, square_size=square_size, pos=mask_position)
         self.win.flip()
         self.win.getMovieFrame()
-        self.win.saveMovieFrames("mask.png")
+        self.win.saveMovieFrames(f"{save_destination}/{trial_id}/mask.png")
         core.wait(.2)
         
         # Show fixation cross
         fixation = visual.TextStim(self.win, text="+", color="white", height=6.0)
         fixation.draw()
         self.win.flip()
-        self.win.getMovieFrame()
-        self.win.saveMovieFrames("fixation.png")
         core.wait(0.1)
 
         # Start eye-tracking recording
-        self.eyetracker.setRecordingState(True)
+        self.eyetracker.start_recording(gaze=True)
 
         # Display stimuli
         for stimgroup in stimuli:
@@ -561,14 +563,13 @@ class Experiment:
                 stim.draw()  # Draw each component of the stimulus group
         self.win.flip()
         self.win.getMovieFrame()
-        self.win.saveMovieFrames("stimulus.png")
+        self.win.saveMovieFrames(f"{save_destination}/{trial_id}/stimulus.png")
 
         # TODO: Data recording
         stime = getTime()
         while getTime() - stime < 1.0:
-            for e in self.eyetracker.getEvents():
-                print(e)
-
+            print(self.eyetracker.get_system_time_stamp())
+            
         # Wait for participant to click
         mouse = event.Mouse(win=self.win)
         while True:
@@ -578,13 +579,12 @@ class Experiment:
             wait(0.01)
 
         # Stop recording
-        self.eyetracker.setRecordingState(False)
+        self.eyetracker.save_data(f"{save_destination}/{trial_id}/trial_{trial_num}")
+        self.eyetracker.stop_recording()
 
         # Wait for participant to press space to proceed
         visual.TextStim(self.win, text=f"Trial {trial_num} complete. Press SPACE to continue.", color="white").draw()
         self.win.flip()
-        self.win.getMovieFrame()
-        self.win.saveMovieFrames("completed.png")
         event.waitKeys(keyList=["space"])
 
     def stimulus_variability(self):
@@ -792,15 +792,18 @@ class Experiment:
         event.waitKeys(keyList=["space"])
 
 if __name__ == "__main__":
-    exp = Experiment(num_trials=4)
+    exp = Experiment(num_trials=4, eye_tracking=True)
 
     # Display stimulus variability
     # exp.stimulus_variability()
 
     # Learning phase
-    # exp.learning_phase()
+    # exp.measure_performance()
 
     # Run the experiment
+    
+    session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    os.makedirs(f"data/tobii_recordings/{session_id}", exist_ok=True)
     for trial in range(1, exp.num_trials + 1):
         exp.run_trial(trial)
 
