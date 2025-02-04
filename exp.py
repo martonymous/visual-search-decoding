@@ -7,6 +7,7 @@ import os
 import sys
 import random
 import numpy as np
+import pandas as pd
 import datetime
 import uuid
 
@@ -315,6 +316,7 @@ class Experiment:
         """Generate target and distractor stimuli arranged in a grid."""
         target = []
         stimuli = []
+        stimulus_data = []
 
         # Generate grid positions
         grid_positions = [
@@ -324,10 +326,9 @@ class Experiment:
         ]
         random.shuffle(grid_positions)
 
-        target_pos = grid_positions[0] if self.target_present else None
-
-        for i, pos in enumerate(grid_positions):
-            for j, val in enumerate(pos):
+        for i, coordinate_pos in enumerate(grid_positions):
+            pos = (None, None)
+            for j, val in enumerate(coordinate_pos):
                 pos[j] = val + random.uniform(-jitter, jitter)
 
             if self.target_present and i == 0:
@@ -341,10 +342,17 @@ class Experiment:
                     "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
                     "masked": False,
                     "target": True}
-                stimuli.extend(stimulus_function(target_attributes, target_pos))
+                stimuli.extend(stimulus_function(target_attributes, pos))
                 target.extend(stimulus_function(target_attributes, (0,0)))
+                stimulus_data.append({
+                    "target_present": self.target_present,
+                    "is_target": True,
+                    "coordinates": coordinate_pos,
+                    "true_position": pos,
+                    "attributes": target_attributes,
+                })
             else:
-                # do only once
+                # do only once if target is not present
                 if i == 0:
                     self.target_color = random.choice(self.saturated_colors)
                     fake_target_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
@@ -358,6 +366,13 @@ class Experiment:
                         "target": False,
                     }
                     target.extend(stimulus_function(fake_target_attributes, (0,0)))
+                    stimulus_data.append({
+                        "target_present": self.target_present,
+                        "is_target": True,
+                        "coordinates": coordinate_pos,
+                        "true_position": pos,
+                        "attributes": fake_target_attributes,
+                    })
 
                 distractor_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
                 print(distractor_color)
@@ -371,13 +386,14 @@ class Experiment:
                     "target": False,
                 }
                 stimuli.extend(stimulus_function(distractor_attributes, pos))
-            # data = {
-            #     "target_present": self.target_present,
-            #     "target_pos": target_pos,
-            #     "distractor_attributes": distractor_attributes,
-            #     "distractor_pos": pos,
-            # }
-        return stimuli, target
+                stimulus_data.append({
+                    "target_present": self.target_present,
+                    "is_target": False,
+                    "coordinates": coordinate_pos,
+                    "true_position": pos,
+                    "attributes": distractor_attributes,
+                })
+        return stimuli, target, stimulus_data
 
     def measure_performance(self):
         """
