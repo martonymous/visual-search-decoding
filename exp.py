@@ -8,8 +8,10 @@ import sys
 import random
 import numpy as np
 import pandas as pd
+import csv
 import datetime
 import uuid
+import time
 
 class Experiment:
     def __init__(self, num_trials=5, eye_tracking=False):
@@ -18,6 +20,7 @@ class Experiment:
         self.monitor = monitors.Monitor("testMonitor", width=53.0, distance=60.0)  # Adjust for your setup
         self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
         self.mouse = event.Mouse(win=self.win)
+        self.eye_tracking = eye_tracking
 
         """ Eye-tracking setup """
         # simulation mode
@@ -26,7 +29,7 @@ class Experiment:
                 "eyetracker.hw.mouse.EyeTracker": {},
             }
             self.io = launchHubServer(**self.iohub_config)
-            self.eyetracker = self.io.devices.tracker
+            self.eyetracker = self.io.devices.eyetracker
         # tobii eyetracker
         else:
             self.et_settings = Titta.get_defaults('Tobii Pro X3-120')
@@ -34,21 +37,25 @@ class Experiment:
             self.eyetracker.init()
             self.eyetracker.calibrate(self.win)
 
-        # Experiment parameters
+        # Object parameters
         self.grid_x = 7
         self.grid_y = 4
         self.num_objects = self.grid_x * self.grid_y
-        self.grid_scaler = 12.0              # Grid spacing
-        self.object_scaler = 1.0            # Object size
-        self.center_scaler = 1.2             # Center offset
+        self.grid_scaler_x = 13              # Grid spacing
+        self.grid_scaler_y = 12              # Grid spacing
+        self.jitter = 1.8                    # Position jitter
+        self.object_scaler = 1.0             # Object size
+        self.center_scaler = 1.4             # Center offset
         self.center_x = 0.5  * self.object_scaler * self.center_scaler
         self.center_y = 0.75 * self.object_scaler * self.center_scaler
-
+        
+        # Experiment parameters
+        self.task_duration = 60.0             # Duration of search task in each trial
         self.target_present = True           # Whether the target is present
-        self.color_difference = 255          # Degree of color differences
-        self.num_trials = 5                  # Number of trials in the experiment
+        self.color_difference = 100          # Degree of color differences
+        self.num_trials = 100                  # Number of trials in the experiment
 
-        # Target attributes
+        # intiialize Target attributes
         self.target_attributes = {
             "color": [255, 0, 0],
             "size": 2.5,
@@ -66,15 +73,12 @@ class Experiment:
             (255, 255, 0),              # Yellow
             (255, 0, 255),              # Magenta
             (0, 255, 255),              # Cyan
-            (255, 127, 0),              # Orange
-            (127, 0, 255),              # Purple
-            (0, 255, 127),              # Spring Green
-            (255, 0, 127),              # Deep Pink
-            (127, 255, 0),              # Chartreuse
-            (0, 127, 255),              # Sky Blue
-            (255, 51, 51),              # Bright Red
-            (51, 255, 51),              # Bright Green
-            (51, 51, 255),              # Bright Blue
+            # (255, 127, 0),              # Orange
+            # (127, 0, 255),              # Purple
+            # (0, 255, 127),              # Spring Green
+            # (255, 0, 127),              # Deep Pink
+            # (127, 255, 0),              # Chartreuse
+            # (0, 127, 255),              # Sky Blue
         ]
 
         # discrete values for size and orientation
@@ -82,8 +86,8 @@ class Experiment:
         self.orientations = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
         # range values for cointinuous attributes
-        self.size_range = [3.0, 5.0]
-        self.orientation_range = [0, 360]
+        self.size_range = [3.0, 4.25]
+        self.orientation_range = [-90, 90]
         self.convex_range = [-1.5, 2.0]
 
     @staticmethod
@@ -189,7 +193,8 @@ class Experiment:
         direction = attributes.get("direction", 1)   # 1 for outward, -1 for inward
         elongation_x = attributes.get("elongation_x", 1.2)
         elongation_y = attributes.get("elongation_y", .9)
-        center_point = attributes.get("center", (0.0, 0.0))
+        center_point = attributes.get("center_point", (0.0, 0.0))
+        missing_vertex = attributes.get("missing_vertex", None)
 
         diamond_vertices = [
             (0.0, 1.5),  # Top
@@ -205,17 +210,26 @@ class Experiment:
 
         shape_points = []
         for i in range(len(diamond_vertices)):
+            if missing_vertex is not None:
+                if i == missing_vertex:
+                    shape_points.append(center_point)
+                    continue
+                if random.random() >= 0.0 and (i + 1) % len(diamond_vertices) == missing_vertex:
+                    shape_points.append(center_point)
+                    continue
+            
             start = diamond_vertices[i]
             end = diamond_vertices[(i + 1) % len(diamond_vertices)]
             curve_points = self.get_convex_curve(start, end, convexity, direction)
             _ = [shape_points.append(x) for x in curve_points]
-        
+
+        color = [x/255 for x in attributes["color"]]
         shape = visual.ShapeStim(
             win=self.win,
             vertices=shape_points,
             lineColor="black",
             lineWidth=2,
-            fillColor=attributes["color"],
+            fillColor=color,
             pos=pos,
             ori=attributes["orientation"],
         )
@@ -223,6 +237,8 @@ class Experiment:
         # Create lines connecting each vertex to the center
         line_stims = []
         for vertex in diamond_vertices:
+            if missing_vertex is not None and diamond_vertices.index(vertex) == missing_vertex:
+                continue
             line_stim = visual.ShapeStim(
                 win=self.win,
                 pos=pos,
@@ -259,7 +275,7 @@ class Experiment:
 
         return stimuli
 
-    def create_checkered_noise_mask(self, win, radius, square_size, pos=(0, 0)):
+    def create_circular_noise_mask(self, radius, square_size, pos=(0, 0)):
         """
         Creates and draws a checkered noise mask that fills a circular area.
 
@@ -283,11 +299,14 @@ class Experiment:
                 # Check if the square's center is within the circular radius
                 if (square_x - pos[0])**2 + (square_y - pos[1])**2 <= radius**2:
                     # Randomly generate a color for the square
-                    if random.random() < 0.4:
+                    ranvar = random.random()
+                    if ranvar < 0.4:
                         if random.random() < 0.5:
                             color = "black"
                         else:
                             color = "white"
+                    elif ranvar < 0.7:
+                        color = random.choice(self.saturated_colors)
                     else:
                         var = random.random()
                         if var < 0.33:
@@ -312,7 +331,61 @@ class Experiment:
         for square in squares:
             square.draw()
 
-    def generate_stimuli(self, stimulus_function, target_present = True, jitter: float = 3.0):
+    def create_checkered_noise_mask(self, square_size):
+        """
+        Creates and draws a checkered noise mask that fills a circular area.
+
+        Parameters:
+        - win: The PsychoPy window where the mask will be drawn.
+        - square_size: The size of the individual squares in the checkered pattern.
+        """
+        # Calculate the number of squares in each direction based on the display size
+        num_squares_x = int(self.win.size[0] / square_size) + 1
+        num_squares_y = int(self.win.size[1] / square_size) + 1
+
+        # Generate the grid positions
+        squares = []
+
+        for x in range(-num_squares_x, num_squares_x + 1):
+            for y in range(-num_squares_y, num_squares_y + 1):
+                # Calculate square center
+                square_x = x * square_size
+                square_y = y * square_size
+
+                # Randomly generate a color for the square
+                ranvar = random.random()
+                if ranvar < 0.4:
+                    if random.random() < 0.5:
+                        color = "black"
+                    else:
+                        color = "white"
+                elif ranvar < 0.7:
+                    color = random.choice(self.saturated_colors)
+                else:
+                    var = random.random()
+                    if var < 0.33:
+                        color = [random.uniform(0.25, 1), random.uniform(0, .5), random.uniform(0, .5)]
+                    elif var < 0.66:
+                        color = [random.uniform(0, .5), random.uniform(0.25, 1), random.uniform(0, .5)]
+                    else:
+                        color = [random.uniform(0, .5), random.uniform(0, .5), random.uniform(0.25, 1)]
+                
+                # Create a square stimulus
+                square = visual.Rect(
+                    win=self.win,
+                    width=square_size,
+                    height=square_size,
+                    fillColor=color,
+                    lineColor=None,
+                    pos=(square_x, square_y),
+                    opacity=2.0
+                )
+                squares.append(square)
+
+        for square in squares:
+            square.draw()
+
+    def generate_stimuli(self, stimulus_function, target_present = True):
         """Generate target and distractor stimuli arranged in a grid."""
         target = []
         stimuli = []
@@ -320,26 +393,28 @@ class Experiment:
 
         # Generate grid positions
         grid_positions = [
-            [(x + 0.5 - (self.grid_x / 2)) * self.grid_scaler, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler]
+            [(x + 0.5 - (self.grid_x / 2)) * self.grid_scaler_x, (y + 0.5 - (self.grid_y / 2)) * self.grid_scaler_y]
             for x in range(self.grid_x)
             for y in range(self.grid_y)
         ]
         random.shuffle(grid_positions)
 
         for i, coordinate_pos in enumerate(grid_positions):
-            pos = (None, None)
+            pos = [None, None]
             for j, val in enumerate(coordinate_pos):
-                pos[j] = val + random.uniform(-jitter, jitter)
+                pos[j] = val + random.uniform(-self.jitter, self.jitter)
 
             if self.target_present and i == 0:
                 color = random.choice(self.saturated_colors)
-                self.target_color = [max(min((int(color[x] + random.uniform(-self.color_difference, self.color_difference)))/255, 1.0), 0.0) for x in range(3)]
+                self.target_color = [max(min((int(color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
+                missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
                 target_attributes = {
                     "color": self.target_color,
-                    "size": random.randint(self.size_range[0], self.size_range[1]),
+                    "size": random.uniform(self.size_range[0], self.size_range[1]),
                     "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
                     "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
                     "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                    "missing_vertex": missing_vertex,
                     "masked": False,
                     "target": True}
                 stimuli.extend(stimulus_function(target_attributes, pos))
@@ -349,19 +424,27 @@ class Experiment:
                     "is_target": True,
                     "coordinates": coordinate_pos,
                     "true_position": pos,
-                    "attributes": target_attributes,
+                    "color": target_attributes["color"],
+                    "size": target_attributes["size"],
+                    "orientation": target_attributes["orientation"],
+                    "convexity": target_attributes["convexity"],
+                    "center_point": target_attributes["center_point"],
+                    "missing_vertex": missing_vertex,
+                    "masked": False,
                 })
             else:
                 # do only once if target is not present
                 if i == 0:
                     self.target_color = random.choice(self.saturated_colors)
-                    fake_target_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
+                    fake_target_color = [max(min((int(self.target_color[x] + random.randint(-self.color_difference, self.color_difference))), 255), .0) for x in range(3)]
+                    missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
                     fake_target_attributes = {
                         "color": fake_target_color,
-                        "size": random.randint(self.size_range[0], self.size_range[1]),
+                        "size": random.uniform(self.size_range[0], self.size_range[1]),
                         "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
                         "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
                         "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "missing_vertex": missing_vertex,
                         "masked": False,
                         "target": False,
                     }
@@ -371,28 +454,41 @@ class Experiment:
                         "is_target": True,
                         "coordinates": coordinate_pos,
                         "true_position": pos,
-                        "attributes": fake_target_attributes,
+                        "color": fake_target_attributes["color"],
+                        "size": fake_target_attributes["size"],
+                        "orientation": fake_target_attributes["orientation"],
+                        "convexity": fake_target_attributes["convexity"],
+                        "center_point": fake_target_attributes["center_point"],
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
                     })
-
-                distractor_color = [self.target_color[x] + random.uniform(-self.color_difference, self.color_difference)/255 for x in range(3)]
-                print(distractor_color)
-                distractor_attributes = {
-                    "color": distractor_color,
-                    "size": random.randint(self.size_range[0], self.size_range[1]),
-                    "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
-                    "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
-                    "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
-                    "masked": False,
-                    "target": False,
-                }
-                stimuli.extend(stimulus_function(distractor_attributes, pos))
-                stimulus_data.append({
-                    "target_present": self.target_present,
-                    "is_target": False,
-                    "coordinates": coordinate_pos,
-                    "true_position": pos,
-                    "attributes": distractor_attributes,
-                })
+                else:
+                    distractor_color = [max(min((int(self.target_color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
+                    missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
+                    distractor_attributes = {
+                        "color": distractor_color,
+                        "size": random.uniform(self.size_range[0], self.size_range[1]),
+                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                        "target": False,
+                    }
+                    stimuli.extend(stimulus_function(distractor_attributes, pos))
+                    stimulus_data.append({
+                        "target_present": self.target_present,
+                        "is_target": False,
+                        "coordinates": coordinate_pos,
+                        "true_position": pos,
+                        "color": distractor_attributes["color"],
+                        "size": distractor_attributes["size"],
+                        "orientation": distractor_attributes["orientation"],
+                        "convexity": distractor_attributes["convexity"],
+                        "center_point": distractor_attributes["center_point"],
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                    })
         return stimuli, target, stimulus_data
 
     def measure_performance(self):
@@ -520,16 +616,20 @@ class Experiment:
             core.wait(0.5)
 
     def run_trial(self, save_destination: str, trial_num):
-        """Run a single visual search trial."""
+        """Run a dual visual search trial, usign the same display with two difficulty levels."""
 
         trial_id = f"{trial_num}_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         os.makedirs(f"{save_destination}/{trial_id}")
         
-        # Generate target and stimuli
-        stimuli, target = self.generate_stimuli(self.create_diamond_stimulus, target_present=True)
+        # Generate target and stimuli and save the data
+        stimuli, target, stimulus_data = self.generate_stimuli(self.create_diamond_stimulus, target_present=True)
+
+        # create pandas row from each stimulus entry
+        df = pd.DataFrame(stimulus_data)
+        df.to_csv(f"{save_destination}/{trial_id}/stimulus_data.csv", index=False)
 
         # Display instructions
-        instructions = ("In this task, you will first see a target object. Try to remember its shape and color.\n\n"
+        instructions = ("In this task, you will first see a target object. Try to remember its shape, color, and orientation.\n\n"
                         "Next, a brief visual mask will appear. After which a fixation cross will be shown. Focus your gaze on it. \n\n"
                         "After a short pause, a grid of objects will appear.\n\n")
         bold_instructions = ("Search (with your eyes) for the target object within the grid. Once you find it,"
@@ -537,9 +637,9 @@ class Experiment:
         instructions_2 = ("If you don't find it, keep searching until the trial ends.\n\n"
                          "You may press SPACE to begin.")
 
-        visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=60, pos=(0,6)).draw()
-        visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=1.5, wrapWidth=60).draw()
-        visual.TextStim(self.win, text=instructions_2, color="white", height=1.5, wrapWidth=60, pos=(0,-6)).draw()
+        visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=70, pos=(0,6)).draw()
+        visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=1.5, wrapWidth=70).draw()
+        visual.TextStim(self.win, text=instructions_2, color="white", height=1.5, wrapWidth=70, pos=(0,-6)).draw()
 
         self.win.flip()
         event.waitKeys(keyList=["space"])
@@ -552,7 +652,7 @@ class Experiment:
         self.win.saveMovieFrames(f"{save_destination}/{trial_id}/target.png")
         core.wait(1.0)
     
-    # Parameters for the noise mask
+        # Parameters for the noise mask
         mask_radius = 20.0  # Radius of the circular area
         square_size = 1.2  # Size of individual squares
         mask_position = (0.0, 0.0)  # Center position of the mask
@@ -562,46 +662,102 @@ class Experiment:
         self.win.flip()
         self.win.getMovieFrame()
         self.win.saveMovieFrames(f"{save_destination}/{trial_id}/mask.png")
-        core.wait(.2)
+        core.wait(.25)
         
         # Show fixation cross
         fixation = visual.TextStim(self.win, text="+", color="white", height=6.0)
         fixation.draw()
         self.win.flip()
-        core.wait(0.1)
+        wait(2.0)
 
         # Start eye-tracking recording
-        self.eyetracker.start_recording(gaze=True)
+        if self.eye_tracking:
+            self.eyetracker.start_recording(gaze=True)
 
         # Display stimuli
-        for stimgroup in stimuli:
-            for stim in stimuli:
-                stim.draw()  # Draw each component of the stimulus group
+        for stim in stimuli:
+            stim.draw()  # Draw each component of the stimulus group
         self.win.flip()
         self.win.getMovieFrame()
         self.win.saveMovieFrames(f"{save_destination}/{trial_id}/stimulus.png")
 
-        # TODO: Data recording
+        # TODO: Live data recording
         stime = getTime()
-        while getTime() - stime < 1.0:
-            print(self.eyetracker.get_system_time_stamp())
-            
-        # Wait for participant to click
-        mouse = event.Mouse(win=self.win)
-        while True:
-            if mouse.getPressed()[0]:  # Left mouse button clicked
-                click_pos = mouse.getPos()
+        while getTime() - stime < self.task_duration:
+            samples = self.eyetracker.buffer.peek_N('gaze', 1)
+            left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 100
+            left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.6) * 40
+            right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 100
+            right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.6) * 40
+            # draw two circles at the gaze points
+            for stim in stimuli:
+                stim.draw()
+            visual.Circle(self.win, pos=(left_gaze_x, left_gaze_y), radius=1, lineColor='red', lineWidth=4).draw()
+            visual.Circle(self.win, pos=(right_gaze_x, right_gaze_y), radius=1, lineColor='blue', lineWidth=4).draw()
+            self.win.flip()
+
+
+            # Wait for participant to press button
+            keys = event.getKeys(keyList=["q"])
+
+            # defaults
+            response = None
+            duration = self.task_duration
+            if keys:
+                duration = getTime() - stime
+                samples = self.eyetracker.buffer.peek_N('gaze', 1)
+                left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 100
+                left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 40
+                # left_gaze_user_coordinates_x = samples['left_gaze_point_in_user_coordinates_x']
+                # left_gaze_user_coordinates_y = samples['left_gaze_point_in_user_coordinates_y']   
+                # left_gaze_user_coordinates_z = samples['left_gaze_point_in_user_coordinates_z']
+                right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 100
+                right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 40
+                # right_gaze_user_coordinates_x = samples['right_gaze_point_in_user_coordinates_x']
+                # right_gaze_user_coordinates_y = samples['right_gaze_point_in_user_coordinates_y']
+                # right_gaze_user_coordinates_z = samples['right_gaze_point_in_user_coordinates_z']
+
+                # print gaze data
+                print(f"Left gaze: ({left_gaze_x}, {left_gaze_y})\nRight gaze: ({right_gaze_x}, {right_gaze_y})")
+                
+                # # draw two circles at the gaze points
+                # for stim in stimuli:
+                #     stim.draw()
+                # visual.Circle(self.win, pos=(left_gaze_x, left_gaze_y), radius=1.5, fillColor='red').draw()
+                # visual.Circle(self.win, pos=(right_gaze_x, right_gaze_y), radius=1.5, fillColor='blue').draw()
+                # self.win.flip()
+
+                # detect if gaze is on target
+                max_target_distance = ((self.grid_scaler_x + self.grid_scaler_y) / 2)
+                target_position = stimulus_data[0]["true_position"]
+                left_distance = np.sqrt((left_gaze_x - target_position[0])**2 + (left_gaze_y - target_position[1])**2)
+                right_distance = np.sqrt((right_gaze_x - target_position[0])**2 + (right_gaze_y - target_position[1])**2)
+                if left_distance < max_target_distance or right_distance < max_target_distance:
+                    print("Gaze on target")
+                    # create green square at target position
+                    visual.Rect(self.win, width=8, height=8, lineColor=(0,255,0), lineWidth=5, pos=target_position).draw()
+                    response = True
+                else:
+                    print("Gaze not on target")
+                    # create square at object nearest to the gaze position
+                    object_coords = [stimulus_data[i]["true_position"] for i in range(1, len(stimulus_data))]
+                    nearest_object_position = min(object_coords, key=lambda x: np.sqrt((left_gaze_x - x[0])**2 + (left_gaze_y - x[1])**2))
+                    visual.Rect(self.win, width=8, height=8, lineColor=(255,0,0), lineWidth=5, pos=nearest_object_position).draw()
+                    response = False
                 break
             wait(0.01)
 
         # Stop recording
-        self.eyetracker.save_data(f"{save_destination}/{trial_id}/trial_{trial_num}")
-        self.eyetracker.stop_recording()
+        if self.eye_tracking:
+            self.eyetracker.save_data(f"{save_destination}/{trial_id}/trial_{trial_num}")
+            self.eyetracker.stop_recording()
 
         # Wait for participant to press space to proceed
         visual.TextStim(self.win, text=f"Trial {trial_num} complete. Press SPACE to continue.", color="white").draw()
         self.win.flip()
         event.waitKeys(keyList=["space"])
+
+        return response, duration
 
     def stimulus_variability(self):
         """
@@ -817,11 +973,21 @@ if __name__ == "__main__":
     # exp.measure_performance()
 
     # Run the experiment
-    
+    # participant_id = input("Enter participant ID: ")
+    participant_id = "test"
     session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    os.makedirs(f"data/tobii_recordings/{session_id}", exist_ok=True)
+    save_destination = f"data/tobii_recordings/{participant_id}/{session_id}"
+    os.makedirs(save_destination, exist_ok=True)
+
+    responses, durations = [], []
     for trial in range(1, exp.num_trials + 1):
-        exp.run_trial(trial)
+        response, duration = exp.run_trial(save_destination, trial)
+        responses.append(response)
+        durations.append(duration)
+
+    # Save responses as a csv file
+    df = pd.DataFrame({"trial": list(range(1, exp.num_trials + 1)), "response": responses, "duration": durations})
+    df.to_csv(f"{save_destination}/responses.csv", index=False)
 
     exp.win.close()
     core.quit()
