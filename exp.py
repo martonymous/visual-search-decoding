@@ -15,7 +15,6 @@ import time
 
 class Experiment:
     def __init__(self, num_trials=5, eye_tracking=False):
-        # =================== Setup ======================
         # Monitor configuration
         self.monitor = monitors.Monitor("testMonitor", width=53.0, distance=60.0)  # Adjust for your setup
         self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
@@ -50,10 +49,10 @@ class Experiment:
         self.center_y = 0.75 * self.object_scaler * self.center_scaler
         
         # Experiment parameters
-        self.task_duration = 60.0             # Duration of search task in each trial
+        self.task_duration = 60.0            # Duration of search task in each trial
         self.target_present = True           # Whether the target is present
         self.color_difference = 100          # Degree of color differences
-        self.num_trials = 100                  # Number of trials in the experiment
+        self.num_trials = 100                # Number of trials in the experiment
 
         # intiialize Target attributes
         self.target_attributes = {
@@ -67,12 +66,12 @@ class Experiment:
         # Generate random distractor attributes
         self.base_color = [127, 127, 127]    # RGB for gray
         self.saturated_colors = [
-            (255, 0, 0),                # Red
-            (0, 255, 0),                # Green
-            (0, 0, 255),                # Blue
-            (255, 255, 0),              # Yellow
-            (255, 0, 255),              # Magenta
-            (0, 255, 255),              # Cyan
+            (255, 0, 0),                     # Red
+            (0, 255, 0),                     # Green
+            (0, 0, 255),                     # Blue
+            (255, 255, 0),                   # Yellow
+            (255, 0, 255),                   # Magenta
+            (0, 255, 255),                   # Cyan
             # (255, 127, 0),              # Orange
             # (127, 0, 255),              # Purple
             # (0, 255, 127),              # Spring Green
@@ -89,6 +88,7 @@ class Experiment:
         self.size_range = [3.0, 4.25]
         self.orientation_range = [-90, 90]
         self.convex_range = [-1.5, 2.0]
+        self.elongation_range = [0.75, 1.5]
 
     @staticmethod
     def get_convex_curve(start, end, convexity=0.9, direction=1, num_points=10):
@@ -182,7 +182,7 @@ class Experiment:
 
         return [stim]
 
-    def create_diamond_stimulus(self, attributes, pos):
+    def create_diamond_stimulus(self, attributes, pos, missing_vertex_probability=0.0):
         """
         Create a diamond-shaped stimulus with elongated proportions. 
         Lines extend from each corner of the diamond to a central point.
@@ -205,16 +205,13 @@ class Experiment:
         diamond_vertices = [(x * elongation_x, y * elongation_y) for x, y in diamond_vertices]
         diamond_vertices = [(x * attributes["size"] * self.object_scaler, y * attributes["size"] * self.object_scaler) for x, y in diamond_vertices]
 
-        # Center the object for rotations
-        # all_vertices = [(x - 0.0, y - 0.0) for x, y in all_vertices]
-
         shape_points = []
         for i in range(len(diamond_vertices)):
             if missing_vertex is not None:
                 if i == missing_vertex:
                     shape_points.append(center_point)
                     continue
-                if random.random() >= 0.0 and (i + 1) % len(diamond_vertices) == missing_vertex:
+                if random.random() >= missing_vertex_probability and (i + 1) % len(diamond_vertices) == missing_vertex:
                     shape_points.append(center_point)
                     continue
             
@@ -385,7 +382,7 @@ class Experiment:
         for square in squares:
             square.draw()
 
-    def generate_stimuli(self, stimulus_function, target_present = True):
+    def generate_stimuli(self, stimulus_function, dual_targets=True):
         """Generate target and distractor stimuli arranged in a grid."""
         target = []
         stimuli = []
@@ -397,16 +394,85 @@ class Experiment:
             for x in range(self.grid_x)
             for y in range(self.grid_y)
         ]
+
+        # TODO: implement counterbalancing of grid positions
         random.shuffle(grid_positions)
+
+        if dual_targets:
+            trial_subtype = random.random()     # randomize order of subtrial
+
+        color = random.choice(self.saturated_colors)
+        self.target_color = [max(min((int(color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
 
         for i, coordinate_pos in enumerate(grid_positions):
             pos = [None, None]
             for j, val in enumerate(coordinate_pos):
                 pos[j] = val + random.uniform(-self.jitter, self.jitter)
 
-            if self.target_present and i == 0:
-                color = random.choice(self.saturated_colors)
-                self.target_color = [max(min((int(color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
+            if dual_targets and i < 2:
+                if i == 0:
+                    if trial_subtype < .5:
+                        missing_vertex = random.randint(0, 3)
+                    else:
+                        missing_vertex = None
+
+                    target_attributes = {
+                        "color": self.target_color,
+                        "size": random.uniform(self.size_range[0], self.size_range[1]),
+                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                        "target": True}
+                    stimuli.extend(stimulus_function(target_attributes, pos))
+                    target.extend(stimulus_function(target_attributes, (0,0)))
+                    stimulus_data.append({
+                        "target_present": self.target_present,
+                        "is_target": True,
+                        "coordinates": coordinate_pos,
+                        "true_position": pos,
+                        "color": target_attributes["color"],
+                        "size": target_attributes["size"],
+                        "orientation": target_attributes["orientation"],
+                        "convexity": target_attributes["convexity"],
+                        "center_point": target_attributes["center_point"],
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                    })
+                
+                if i == 1:
+                    if trial_subtype > .5:
+                        missing_vertex = random.randint(0, 3)
+                    else:
+                        missing_vertex = None
+
+                    target_attributes = {
+                        "color": self.target_color,
+                        "size": random.uniform(self.size_range[0], self.size_range[1]),
+                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                        "target": True}
+                    stimuli.extend(stimulus_function(target_attributes, pos))
+                    target.extend(stimulus_function(target_attributes, (0,0)))
+                    stimulus_data.append({
+                        "target_present": self.target_present,
+                        "is_target": True,
+                        "coordinates": coordinate_pos,
+                        "true_position": pos,
+                        "color": target_attributes["color"],
+                        "size": target_attributes["size"],
+                        "orientation": target_attributes["orientation"],
+                        "convexity": target_attributes["convexity"],
+                        "center_point": target_attributes["center_point"],
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                    })                   
+
+            elif self.target_present and i == 0:
                 missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
                 target_attributes = {
                     "color": self.target_color,
@@ -435,11 +501,9 @@ class Experiment:
             else:
                 # do only once if target is not present
                 if i == 0:
-                    self.target_color = random.choice(self.saturated_colors)
-                    fake_target_color = [max(min((int(self.target_color[x] + random.randint(-self.color_difference, self.color_difference))), 255), .0) for x in range(3)]
                     missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
                     fake_target_attributes = {
-                        "color": fake_target_color,
+                        "color": self.target_color,
                         "size": random.uniform(self.size_range[0], self.size_range[1]),
                         "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
                         "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
@@ -491,6 +555,17 @@ class Experiment:
                     })
         return stimuli, target, stimulus_data
 
+    def set_difficulty(self, color_difference=None, orientation_range=None, elongation_range=None, convex_range=None):
+        """Set the difficulty level of the task. This will determine the maximum and average difference between target and distractor."""
+        if color_difference is not None:
+            self.color_difference = color_difference
+        if orientation_range is not None:
+            self.orientation_range = orientation_range
+        if elongation_range is not None:
+            self.elongation_range = elongation_range
+        if convex_range is not None:
+            self.convex_range = convex_range
+    
     def measure_performance(self):
         """
         Implements the learning phase of the task:
@@ -652,13 +727,13 @@ class Experiment:
         self.win.saveMovieFrames(f"{save_destination}/{trial_id}/target.png")
         core.wait(1.0)
     
-        # Parameters for the noise mask
-        mask_radius = 20.0  # Radius of the circular area
+        # Parameters for the noise mask (circular mask parameters commented out)
+        # mask_radius = 20.0  # Radius of the circular area
         square_size = 1.2  # Size of individual squares
-        mask_position = (0.0, 0.0)  # Center position of the mask
+        # mask_position = (0.0, 0.0)  # Center position of the mask
 
         # Draw the checkered noise mask
-        self.create_checkered_noise_mask(self.win, radius=mask_radius, square_size=square_size, pos=mask_position)
+        self.create_checkered_noise_mask(self.win, square_size=square_size)
         self.win.flip()
         self.win.getMovieFrame()
         self.win.saveMovieFrames(f"{save_destination}/{trial_id}/mask.png")
