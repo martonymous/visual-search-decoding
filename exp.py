@@ -2,6 +2,7 @@ from psychopy import visual, event, core, monitors
 from psychopy.iohub import launchHubServer
 from psychopy.core import getTime, wait
 from titta import Titta
+from pathlib import Path
 
 import argparse
 import os
@@ -17,7 +18,7 @@ import time
 class Experiment:
     def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50):
         # Monitor configuration
-        self.monitor = monitors.Monitor("testMonitor", width=53.0, distance=60.0)  # Adjust for your setup
+        self.monitor = monitors.Monitor("Monitor", width=53.0, distance=60.0)
         self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
         self.mouse = event.Mouse(win=self.win)
         self.eye_tracking = eye_tracking
@@ -93,10 +94,15 @@ class Experiment:
         self.elongation_range = [0.75, 1.5]
 
         # create noise mask
-        visual.TextStim(self.win, text="Setting up experiment, just wait a moment!", bold = True, color="white", height=2.5, wrapWidth=70).draw()
+        visual.TextStim(self.win, text="Setting up experiment, wait just a moment!", bold = True, color="white", height=2.2, wrapWidth=70).draw()
         self.win.flip()
         self.noise = self.create_checkered_noise_mask(1.2)
 
+    @staticmethod
+    def is_valid_sample(sample, keys):
+        """ Check if a sample has NaN values for the specified keys """
+        return not any(np.isnan(sample[key]) for key in keys)
+    
     @staticmethod
     def get_convex_curve(start, end, convexity=0.9, direction=1, num_points=10):
         """
@@ -827,10 +833,6 @@ class Experiment:
                     duration = getTime() - stime
                     samples = self.eyetracker.buffer.peek_N('gaze', 5)
 
-                    def is_valid_sample(sample, keys):
-                        """ Check if a sample has NaN values for the specified keys """
-                        return not any(np.isnan(sample[key]) for key in keys)
-
                     # List of gaze keys we want to check for NaN values
                     gaze_keys = [
                         'left_gaze_point_on_display_area_x',
@@ -842,9 +844,9 @@ class Experiment:
                     # Find the most recent valid sample (last non-NaN sample in the list)
                     valid_sample = None
 
-                    for i in range(4, -1, -1):  # Iterate from most recent (index 4) to oldest (index 0)
+                    for i in range(4, -1, -1):  # Iterate from most recent samples
                         sample = {key: samples[key][i] for key in gaze_keys}
-                        if is_valid_sample(sample, gaze_keys):
+                        if self.is_valid_sample(sample, gaze_keys):
                             valid_sample = sample
                             break
 
@@ -859,42 +861,8 @@ class Experiment:
                     else:
                         print("No valid gaze sample found.")
 
-                    # samples = self.eyetracker.buffer.peek_N('gaze', 1)
-                    # left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 100
-                    # left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 40
-                    # # left_gaze_user_coordinates_x = samples['left_gaze_point_in_user_coordinates_x']
-                    # # left_gaze_user_coordinates_y = samples['left_gaze_point_in_user_coordinates_y']   
-                    # # left_gaze_user_coordinates_z = samples['left_gaze_point_in_user_coordinates_z']
-                    # right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 100
-                    # right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 40
-                    # # right_gaze_user_coordinates_x = samples['right_gaze_point_in_user_coordinates_x']
-                    # # right_gaze_user_coordinates_y = samples['right_gaze_point_in_user_coordinates_y']
-                    # # right_gaze_user_coordinates_z = samples['right_gaze_point_in_user_coordinates_z']
-
-                    # # print gaze data
-                    # print(f"Left gaze: ({left_gaze_x}, {left_gaze_y})\nRight gaze: ({right_gaze_x}, {right_gaze_y})")
-                    
-                    # # draw two circles at the gaze points
-                    # for stim in stimuli:
-                    #     stim.draw()
-                    # visual.Circle(self.win, pos=(left_gaze_x, left_gaze_y), radius=1.5, fillColor='red').draw()
-                    # visual.Circle(self.win, pos=(right_gaze_x, right_gaze_y), radius=1.5, fillColor='blue').draw()
-                    # self.win.flip()
-
                     # detect if gaze is on target
-                    max_target_distance = ((self.grid_scaler_x + self.grid_scaler_y) / 1.5)
                     target_position = stimulus_data[i]["true_position"]
-                    left_distance = np.sqrt((left_gaze_x - target_position[0])**2 + (left_gaze_y - target_position[1])**2)
-                    right_distance = np.sqrt((right_gaze_x - target_position[0])**2 + (right_gaze_y - target_position[1])**2)
-
-                    # if left_distance < max_target_distance or right_distance < max_target_distance:
-                    #     print("Gaze on target")
-                    #     # create green square at target position
-                    #     visual.Rect(self.win, width=9, height=9, lineColor=(0,255,0), lineWidth=5, pos=target_position).draw()
-                    #     response = True
-                    # else:
-                    #     print("Gaze not on target")
-                    #     # create red square at object nearest to the gaze position
                     object_coords = [stimulus_data[j]["true_position"] for j in range(0, len(stimulus_data))]
                     nearest_object_position = min(object_coords, key=lambda x: np.sqrt((left_gaze_x - x[0])**2 + (left_gaze_y - x[1])**2))
 
@@ -1137,9 +1105,13 @@ class Experiment:
 def parse_args():
     parser = argparse.ArgumentParser(description="Run an eye-tracking experiment.")
     parser.add_argument("--participant_id", type=str, default="test", help="Participant ID")
-    parser.add_argument("--num_trials", type=int, default=10, help="Number of trials to run (default: 4)")
+    parser.add_argument("--training_trials", type=int, default=50, help="Number of training trials to run (default: 50), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("--testing_trials", type=int, default=100, help="Number of testing trials to run (default: 100), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("--block_size", type=int, default=10, help="Number of trials per block for staircase procedure (default: 10), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("-et", "--eye_tracking", action="store_false", help="Enable eye tracking (default: False)")
     parser.add_argument("--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
+    # choose form 3 staircase options: based on duration, based on accuracy, or both
+    parser.add_argument("--staircase", type=str, default="both", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
     return parser.parse_args()
 
 
@@ -1150,39 +1122,96 @@ if __name__ == "__main__":
 
     session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     save_destination = f"{args.output_dir}/{args.participant_id}/{session_id}"
-    os.makedirs(save_destination, exist_ok=True)
+    training_destination = f"{save_destination}/training"
+    testing_destination = f"{save_destination}/testing"
+    os.makedirs(training_destination, exist_ok=True)
+    os.makedirs(testing_destination, exist_ok=True)
 
     responses, durations, difficulties = [], [], []
-    for trial in range(1, exp.num_trials + 1):
-        response, duration = exp.run_trial(save_destination, trial)
+    for trial in range(1, exp.training_trials + 1):
+        response, duration = exp.run_trial(training_destination, trial)
 
-        _ = [responses.append(r) for r in response]
-        _ = [durations.append(d) for d in duration]
-        _ = [difficulties.append(exp.color_difference) for _ in range(len(response))]
+        for r in response: responses.append(r)
+        for d in duration: durations.append(d)
+        for dif in range(len(response)): difficulties.append(exp.color_difference)
 
         # implement staircase procedure
-        # count number of True responses
-        num_correct = sum(response)
-        percent_correct = num_correct / len(response)
+        if args.staircase == "accuracy":
+            # count number of True responses
+            num_correct = sum(response)
+            percent_correct = num_correct / len(response)
 
-        # count number of True responses from last n trials
-        n = 4
-        last_n_correct = sum(response[-n:]) if len(response) >= n else sum(response)
-        last_n_percent_correct = last_n_correct / n if len(response) >= n else last_n_correct / len(response)
+            # count number of True responses from last n trials
+            n = 4
+            last_n_correct = sum(response[-n:]) if len(response) >= n else sum(response)
+            last_n_percent_correct = last_n_correct / n if len(response) >= n else last_n_correct / len(response)
 
-        # adjust difficulty based on performance
-        if percent_correct > .5:
-            exp.set_difficulty(color_difference=exp.color_difference - 10)
-        elif percent_correct < .5:
-            exp.set_difficulty(color_difference=exp.color_difference + 10)
+            # adjust difficulty based on performance
+            if percent_correct > .55:
+                exp.set_difficulty(color_difference=exp.color_difference - 5)
+            elif percent_correct < .45:
+                exp.set_difficulty(color_difference=exp.color_difference + 5)
+
+        elif args.staircase == "duration":
+            # calculate mean duration of last n trials
+            n = 4
+            last_n_duration = np.mean(duration[-n:]) if len(duration) >= n else np.mean(duration)
+
+            # adjust difficulty based on response time
+            if last_n_duration > 6.0:
+                exp.set_difficulty(color_difference=exp.color_difference + 5)
+            elif last_n_duration < 4.0:
+                exp.set_difficulty(color_difference=exp.color_difference - 5)
+            else:
+                exp.set_difficulty(color_difference=exp.color_difference - 2)
 
     # Save responses as a csv file
     df = pd.DataFrame({
-        "trial": list(range(1, (2*exp.num_trials) + 1)),
+        "trial": list(range(1, (2*exp.training_trials) + 1)),
         "response": responses,
         "duration": durations
     })
-    df.to_csv(f"{save_destination}/responses.csv", index=False)
+    df.to_csv(f"{training_destination}/responses.csv", index=False)
+
+    # testing phase
+    for trial in range(1, exp.testing_trials + 1):
+        response, duration = exp.run_trial(testing_destination, trial)
+
+        for r in response: responses.append(r)
+        for d in duration: durations.append(d)
+        for dif in range(len(response)): difficulties.append(exp.color_difference)
+
+        # check every 10 trials for difficulty adjustment
+        # either on-the-go staircase (every trial) or block staircase (every X trials) procedure
+        if trial % args.block_size == 0:
+            if args.staircase == "accuracy":
+                # count number of True responses
+                num_correct = sum(response)
+                percent_correct = num_correct / len(response)
+
+                # count number of True responses from last n trials
+                n = 4
+                last_n_correct = sum(response[-n:]) if len(response) >= n else sum(response)
+                last_n_percent_correct = last_n_correct / n if len(response) >= n else last_n_correct / len(response)
+
+                # adjust difficulty based on performance
+                if percent_correct > .55:
+                    exp.set_difficulty(color_difference=exp.color_difference - 5)
+                elif percent_correct < .45:
+                    exp.set_difficulty(color_difference=exp.color_difference + 5)
+
+            elif args.staircase == "duration":
+                # calculate mean duration of last n trials
+                n = 4
+                last_n_duration = np.mean(duration[-n:]) if len(duration) >= n else np.mean(duration)
+
+                # adjust difficulty based on response time
+                if last_n_duration > 6.0:
+                    exp.set_difficulty(color_difference=exp.color_difference + 5)
+                elif last_n_duration < 4.0:
+                    exp.set_difficulty(color_difference=exp.color_difference - 5)
+                else:
+                    exp.set_difficulty(color_difference=exp.color_difference - 2)
 
     exp.win.close()
     core.quit()
