@@ -2,21 +2,21 @@ from psychopy import visual, event, core, monitors
 from psychopy.iohub import launchHubServer
 from psychopy.core import getTime, wait
 from titta import Titta
-from pathlib import Path
 
 import argparse
 import os
-import sys
 import random
 import numpy as np
 import pandas as pd
-import csv
 import datetime
-import uuid
-import time
 
 class Experiment:
-    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50):
+    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50, seed=42):
+        """Initialize the experiment with the specified parameters."""
+        # Set random seed for reproducibility
+        random.seed(seed)
+        np.random.seed(seed)
+
         # Monitor configuration
         self.monitor = monitors.Monitor("Monitor", width=53.0, distance=60.0)
         self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
@@ -58,15 +58,6 @@ class Experiment:
         self.color_difference = color_difference  # Degree of color differences
         self.num_trials = num_trials              # Number of trials in the experiment
 
-        # intiialize Target attributes
-        self.target_attributes = {
-            "color": [255, 0, 0],
-            "size": 2.5,
-            "masked": False,
-            "target": True,
-            "orientation": 0,
-        }
-
         self.base_color = [127, 127, 127]    # RGB for gray
         self.saturated_colors = [
             (255, 0, 0),                     # Red
@@ -75,17 +66,7 @@ class Experiment:
             (255, 255, 0),                   # Yellow
             (255, 0, 255),                   # Magenta
             (0, 255, 255),                   # Cyan
-            # (255, 127, 0),              # Orange
-            # (127, 0, 255),              # Purple
-            # (0, 255, 127),              # Spring Green
-            # (255, 0, 127),              # Deep Pink
-            # (127, 255, 0),              # Chartreuse
-            # (0, 127, 255),              # Sky Blue
         ]
-
-        # discrete values for size and orientation
-        self.sizes = [2.0, 2.5, 3.0, 3.5, 4.0]
-        self.orientations = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
         # range values for cointinuous attributes
         self.size_range = [3.0, 4.25]
@@ -428,7 +409,7 @@ class Experiment:
             for j, val in enumerate(coordinate_pos):
                 pos[j] = val + random.uniform(-self.jitter, self.jitter)
 
-            # dual target trials
+            # for dual target trials
             if self.dual_targets and i < 2:
                 target = []
                 if i == 0:
@@ -438,15 +419,20 @@ class Experiment:
                     else:
                         missing_vertex = None
 
-                    target_attributes = {
-                        "color": self.target_color,
-                        "size": random.uniform(self.size_range[0], self.size_range[1]),
-                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
-                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
-                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
-                        "missing_vertex": missing_vertex,
-                        "masked": False,
-                        "target": True}
+                    # we either fix targets for each trial (or each block of trials) or we randomize them
+                    if not self.fixed_targets:
+                        target_attributes = {
+                            "color": self.target_color,
+                            "size": random.uniform(self.size_range[0], self.size_range[1]),
+                            "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                            "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                            "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                            "missing_vertex": missing_vertex,
+                            "masked": False,
+                            "target": True
+                        }
+                    else:
+                        target_attributes = self.fixed_targets[0]
                     stimuli.extend(stimulus_function(target_attributes, pos))
                     target.extend(stimulus_function(target_attributes, (0,0)))
                     stimulus_data.append({
@@ -469,16 +455,20 @@ class Experiment:
                         missing_vertex = random.randint(0, 3)
                     else:
                         missing_vertex = None
-
-                    target_attributes = {
-                        "color": self.target_color,
-                        "size": random.uniform(self.size_range[0], self.size_range[1]),
-                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
-                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
-                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
-                        "missing_vertex": missing_vertex,
-                        "masked": False,
-                        "target": True}
+                    
+                    if not self.fixed_targets:
+                        target_attributes = {
+                            "color": self.target_color,
+                            "size": random.uniform(self.size_range[0], self.size_range[1]),
+                            "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                            "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                            "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                            "missing_vertex": missing_vertex,
+                            "masked": False,
+                            "target": True
+                        }
+                    else:
+                        target_attributes = self.fixed_targets[1]
                     stimuli.extend(stimulus_function(target_attributes, pos))
                     target.extend(stimulus_function(target_attributes, (0,0)))
                     stimulus_data.append({
@@ -496,19 +486,24 @@ class Experiment:
                         "subtrial": "b",
                     })                   
 
-            # single target trials
+            # for single target trials
             elif self.target_present and i == 0:
                 target = []
                 missing_vertex = random.randint(0, 3) if random.random() < 0.5 else None
-                target_attributes = {
-                    "color": self.target_color,
-                    "size": random.uniform(self.size_range[0], self.size_range[1]),
-                    "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
-                    "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
-                    "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
-                    "missing_vertex": missing_vertex,
-                    "masked": False,
-                    "target": True}
+
+                if not self.fixed_targets:
+                    target_attributes = {
+                        "color": self.target_color,
+                        "size": random.uniform(self.size_range[0], self.size_range[1]),
+                        "orientation": random.uniform(self.orientation_range[0], self.orientation_range[1]),
+                        "convexity": random.uniform(self.convex_range[0], self.convex_range[1]),
+                        "center_point": (random.uniform(-self.center_x, self.center_x), random.uniform(-self.center_y, self.center_y)),
+                        "missing_vertex": missing_vertex,
+                        "masked": False,
+                        "target": True
+                    }
+                else:
+                    target_attributes = self.fixed_targets[0]
                 stimuli.extend(stimulus_function(target_attributes, pos))
                 target.extend(stimulus_function(target_attributes, (0,0)))
                 stimulus_data.append({
@@ -525,7 +520,7 @@ class Experiment:
                     "masked": False,
                 })
             
-            # no target trials
+            # distractors
             else:
                 target = []
                 # do only once if target is not present
@@ -733,8 +728,9 @@ class Experiment:
             self.win.flip()
             core.wait(0.5)
 
-    def run_trial(self, save_destination: str, trial_num):
-        """Run a dual visual search trial, usign the same display with two difficulty levels."""
+    def run_trial(self, save_destination: str, trial_num: int, fixed_targets=None):
+        """Run a visual search trial, either a single target+stimulus display or using the same display with two difficulty levels."""
+        self.fixed_targets = fixed_targets
 
         trial_id = f"{trial_num}_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         os.makedirs(f"{save_destination}/{trial_id}")
@@ -777,11 +773,6 @@ class Experiment:
             self.win.getMovieFrame()
             self.win.saveMovieFrames(f"{save_destination}/{trial_id}/target_{subtrial_id}.png")
             core.wait(1.0)
-        
-            # Parameters for the noise mask (circular mask parameters commented out)
-            # mask_radius = 20.0  # Radius of the circular area
-            square_size = 1.2  # Size of individual squares
-            # mask_position = (0.0, 0.0)  # Center position of the mask
 
             # Draw the checkered noise mask
             for square in self.noise:
@@ -811,7 +802,7 @@ class Experiment:
                 samples = self.eyetracker.buffer.peek_N('gaze', 1)
 
                 # more magic numbers for gaze position and scaling
-                # TODO: figure out magic numbers
+                # TODO: figure out a more automatic way of determining these magic numbers
                 left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 95
                 left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 65
                 right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 95
@@ -896,11 +887,36 @@ class Experiment:
             durations.append(duration)
 
         return responses, durations
+    
+    def staircase_adjustment(self, responses, durations, n:int=4, staircase: str="duration"):
+        """ Adjust the difficulty of the task based on the participant's accuracy or response time. """
+        if staircase == "accuracy":
+            # count number of True responses from last n trials
+            last_n_correct = sum(responses[-n:]) if len(responses) >= n else sum(responses)
+            last_n_percent_correct = last_n_correct / n if len(responses) >= n else last_n_correct / len(responses)
+
+            # adjust difficulty based on performance
+            if last_n_percent_correct > .55:
+                exp.set_difficulty(color_difference=exp.color_difference - 5)
+            elif last_n_percent_correct < .45:
+                exp.set_difficulty(color_difference=exp.color_difference + 5)
+            else:
+                exp.set_difficulty(color_difference=exp.color_difference - 2)
+
+        elif staircase == "duration":
+            # calculate mean duration of last n trials
+            last_n_duration = np.mean(durations[-n:]) if len(durations) >= n else np.mean(durations)
+
+            # adjust difficulty based on response time
+            if last_n_duration > 6.0:
+                exp.set_difficulty(color_difference=exp.color_difference + 5)
+            elif last_n_duration < 4.0:
+                exp.set_difficulty(color_difference=exp.color_difference - 5)
+            else:
+                exp.set_difficulty(color_difference=exp.color_difference - 2)
 
     def stimulus_variability(self):
-        """
-        Generate a series of stimuli with varying attributes for visual inspection.
-        """
+        """ Generate a series of stimuli with varying attributes for visual inspection."""
         self.grid_x = 9
         self.grid_y = 5
 
@@ -1105,20 +1121,21 @@ class Experiment:
 def parse_args():
     parser = argparse.ArgumentParser(description="Run an eye-tracking experiment.")
     parser.add_argument("--participant_id", type=str, default="test", help="Participant ID")
+    parser.add_argument("--config_file", type=str, help="Path to the configuration file")
     parser.add_argument("--training_trials", type=int, default=50, help="Number of training trials to run (default: 50), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("--testing_trials", type=int, default=100, help="Number of testing trials to run (default: 100), keeping in mind every trial cotnains 2 subtrials")
-    parser.add_argument("--block_size", type=int, default=10, help="Number of trials per block for staircase procedure (default: 10), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("-bd", "--block_size", type=int, default=10, help="Number of trials per block for staircase procedure (default: 10), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("-td", "--task_duration", type=float, default=10.0, help="Maximum duration of each search task in seconds (default: 10.0)")
     parser.add_argument("-et", "--eye_tracking", action="store_false", help="Enable eye tracking (default: False)")
-    parser.add_argument("--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
-    # choose form 3 staircase options: based on duration, based on accuracy, or both
-    parser.add_argument("--staircase", type=str, default="both", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
+    parser.add_argument("-od", "--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
+    parser.add_argument("-sc", "--staircase", type=str, default="both", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     
-    exp = Experiment(num_trials=args.num_trials, eye_tracking=args.eye_tracking)
+    exp = Experiment(num_trials=args.num_trials, eye_tracking=args.eye_tracking, task_duration=args.task_duration)
 
     session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     save_destination = f"{args.output_dir}/{args.participant_id}/{session_id}"
@@ -1135,47 +1152,43 @@ if __name__ == "__main__":
         for d in duration: durations.append(d)
         for dif in range(len(response)): difficulties.append(exp.color_difference)
 
-        # implement staircase procedure
-        if args.staircase == "accuracy":
-            # count number of True responses
-            num_correct = sum(response)
-            percent_correct = num_correct / len(response)
-
-            # count number of True responses from last n trials
-            n = 4
-            last_n_correct = sum(response[-n:]) if len(response) >= n else sum(response)
-            last_n_percent_correct = last_n_correct / n if len(response) >= n else last_n_correct / len(response)
-
-            # adjust difficulty based on performance
-            if percent_correct > .55:
-                exp.set_difficulty(color_difference=exp.color_difference - 5)
-            elif percent_correct < .45:
-                exp.set_difficulty(color_difference=exp.color_difference + 5)
-
-        elif args.staircase == "duration":
-            # calculate mean duration of last n trials
-            n = 4
-            last_n_duration = np.mean(duration[-n:]) if len(duration) >= n else np.mean(duration)
-
-            # adjust difficulty based on response time
-            if last_n_duration > 6.0:
-                exp.set_difficulty(color_difference=exp.color_difference + 5)
-            elif last_n_duration < 4.0:
-                exp.set_difficulty(color_difference=exp.color_difference - 5)
-            else:
-                exp.set_difficulty(color_difference=exp.color_difference - 2)
+        exp.staircase_adjustment(responses, durations, n=4, staircase=args.staircase)
 
     # Save responses as a csv file
     df = pd.DataFrame({
         "trial": list(range(1, (2*exp.training_trials) + 1)),
         "response": responses,
-        "duration": durations
+        "duration": durations,
+        "difficulty": difficulties
     })
     df.to_csv(f"{training_destination}/responses.csv", index=False)
 
     # testing phase
+    exp.target_color = random.choice(exp.saturated_colors)
+    first_target_attributes = {
+        "color": [max(min((int(exp.target_color[x] + random.randint(-exp.color_difference, exp.color_difference))), 255), 0) for x in range(3)],
+        "size": random.uniform(exp.size_range[0], exp.size_range[1]),
+        "orientation": random.uniform(exp.orientation_range[0], exp.orientation_range[1]),
+        "convexity": random.uniform(exp.convex_range[0], exp.convex_range[1]),
+        "center_point": (random.uniform(-exp.center_x, exp.center_x), random.uniform(-exp.center_y, exp.center_y)),
+        "missing_vertex": random.randint(0, 3),
+        "masked": False,
+        "target": True
+    }
+    second_target_attributes = {
+        "color": [max(min((int(exp.target_color[x] + random.randint(-exp.color_difference, exp.color_difference))), 255), 0) for x in range(3)],
+        "size": random.uniform(exp.size_range[0], exp.size_range[1]),
+        "orientation": random.uniform(exp.orientation_range[0], exp.orientation_range[1]),
+        "convexity": random.uniform(exp.convex_range[0], exp.convex_range[1]),
+        "center_point": (random.uniform(-exp.center_x, exp.center_x), random.uniform(-exp.center_y, exp.center_y)),
+        "missing_vertex": None,
+        "masked": False,
+        "target": True
+    }
+    fixed_targets = [first_target_attributes, second_target_attributes]
+    responses, durations, difficulties = [], [], []
     for trial in range(1, exp.testing_trials + 1):
-        response, duration = exp.run_trial(testing_destination, trial)
+        response, duration = exp.run_trial(testing_destination, trial, fixed_targets=fixed_targets)
 
         for r in response: responses.append(r)
         for d in duration: durations.append(d)
@@ -1184,34 +1197,15 @@ if __name__ == "__main__":
         # check every 10 trials for difficulty adjustment
         # either on-the-go staircase (every trial) or block staircase (every X trials) procedure
         if trial % args.block_size == 0:
-            if args.staircase == "accuracy":
-                # count number of True responses
-                num_correct = sum(response)
-                percent_correct = num_correct / len(response)
+            exp.staircase_adjustment(responses, durations, n=4, staircase=args.staircase)
 
-                # count number of True responses from last n trials
-                n = 4
-                last_n_correct = sum(response[-n:]) if len(response) >= n else sum(response)
-                last_n_percent_correct = last_n_correct / n if len(response) >= n else last_n_correct / len(response)
-
-                # adjust difficulty based on performance
-                if percent_correct > .55:
-                    exp.set_difficulty(color_difference=exp.color_difference - 5)
-                elif percent_correct < .45:
-                    exp.set_difficulty(color_difference=exp.color_difference + 5)
-
-            elif args.staircase == "duration":
-                # calculate mean duration of last n trials
-                n = 4
-                last_n_duration = np.mean(duration[-n:]) if len(duration) >= n else np.mean(duration)
-
-                # adjust difficulty based on response time
-                if last_n_duration > 6.0:
-                    exp.set_difficulty(color_difference=exp.color_difference + 5)
-                elif last_n_duration < 4.0:
-                    exp.set_difficulty(color_difference=exp.color_difference - 5)
-                else:
-                    exp.set_difficulty(color_difference=exp.color_difference - 2)
+    # Save responses as a csv file
+    df = pd.DataFrame({
+        "trial": list(range(1, (2*exp.training_trials) + 1)),
+        "response": responses,
+        "duration": durations,
+        "difficulty": difficulties
+    })
 
     exp.win.close()
     core.quit()
