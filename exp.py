@@ -11,7 +11,7 @@ import pandas as pd
 import datetime
 
 class Experiment:
-    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50, seed=42):
+    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50, variable_target_size=False, seed=42):
         """Initialize the experiment with the specified parameters."""
         # Set random seed for reproducibility
         random.seed(seed)
@@ -43,20 +43,21 @@ class Experiment:
         self.grid_x = 7
         self.grid_y = 4
         self.num_objects = self.grid_x * self.grid_y
-        self.grid_scaler_x = 13                   # Grid spacing
-        self.grid_scaler_y = 12                    # Grid spacing
-        self.jitter = 1.8                         # Position jitter
-        self.object_scaler = 1.0                  # Object size
-        self.center_scaler = 1.4                  # Center offset
+        self.grid_scaler_x = 13                                     # Grid spacing
+        self.grid_scaler_y = 12                                     # Grid spacing
+        self.jitter = 1.8                                           # Position jitter
+        self.object_scaler = 1.0                                    # Object size
+        self.center_scaler = 1.4                                    # Center offset
         self.center_x = 0.5  * self.object_scaler * self.center_scaler
         self.center_y = 0.75 * self.object_scaler * self.center_scaler
         
         # Experiment parameters
-        self.task_duration = task_duration        # Duration of search task in each trial
-        self.target_present = target_present      # Whether the target is present
-        self.dual_targets = dual_targets          # Whether to show two targets in the same
-        self.color_difference = color_difference  # Degree of color differences
-        self.num_trials = num_trials              # Number of trials in the experiment
+        self.task_duration = task_duration                          # Duration of search task in each trial
+        self.target_present = target_present                        # Whether the target is present
+        self.dual_targets = dual_targets                            # Whether to show two targets in the same
+        self.color_difference = color_difference                    # Degree of color differences
+        self.num_trials = num_trials                                # Number of trials in the experiment
+        self.variable_target_size = variable_target_size            # Whether to vary target size
 
         self.base_color = [127, 127, 127]    # RGB for gray
         self.saturated_colors = [
@@ -69,8 +70,8 @@ class Experiment:
         ]
 
         # range values for cointinuous attributes
-        self.size_range = [3.0, 4.25]
-        self.orientation_range = [-90, 90]
+        self.size_range = [3.0, 4.5]
+        self.orientation_range = [-30, 30]
         self.convex_range = [-1.5, 2.0]
         self.elongation_range = [0.75, 1.5]
 
@@ -431,9 +432,16 @@ class Experiment:
                             "masked": False,
                             "target": True
                         }
+                        target_variant_attributes = target_attributes.copy()
                     else:
                         target_attributes = self.fixed_targets[0]
-                    stimuli.extend(stimulus_function(target_attributes, pos))
+                        target_variant_attributes = self.fixed_targets[0]
+
+                    if self.variable_target_size:
+                        target_variant_attributes["size"] = random.uniform(self.size_range[0], self.size_range[1])
+                    if self.variable_target_orientation:
+                        target_variant_attributes["orientation"] = random.uniform(self.orientation_range[0], self.orientation_range[1])
+                    stimuli.extend(stimulus_function(target_variant_attributes, pos))
                     target.extend(stimulus_function(target_attributes, (0,0)))
                     stimulus_data.append({
                         "target_present": self.target_present,
@@ -467,9 +475,16 @@ class Experiment:
                             "masked": False,
                             "target": True
                         }
+                        target_variant_attributes = target_attributes.copy()
                     else:
                         target_attributes = self.fixed_targets[1]
-                    stimuli.extend(stimulus_function(target_attributes, pos))
+                        target_variant_attributes = self.fixed_targets[1]
+
+                    if self.variable_target_size:
+                        target_variant_attributes["size"] = random.uniform(self.size_range[0], self.size_range[1])
+                    if self.variable_target_orientation:
+                        target_variant_attributes["orientation"] = random.uniform(self.orientation_range[0], self.orientation_range[1])
+                    stimuli.extend(stimulus_function(target_variant_attributes, pos))
                     target.extend(stimulus_function(target_attributes, (0,0)))
                     stimulus_data.append({
                         "target_present": self.target_present,
@@ -502,8 +517,16 @@ class Experiment:
                         "masked": False,
                         "target": True
                     }
+                    target_variant_attributes = target_attributes.copy()
                 else:
                     target_attributes = self.fixed_targets[0]
+                    target_variant_attributes = self.fixed_targets[0]
+
+                if self.variable_target_size:
+                    target_variant_attributes["size"] = random.uniform(self.size_range[0], self.size_range[1])
+                if self.variable_target_orientation:
+                    target_variant_attributes["orientation"] = random.uniform(self.orientation_range[0], self.orientation_range[1])
+
                 stimuli.extend(stimulus_function(target_attributes, pos))
                 target.extend(stimulus_function(target_attributes, (0,0)))
                 stimulus_data.append({
@@ -1129,13 +1152,16 @@ def parse_args():
     parser.add_argument("-et", "--eye_tracking", action="store_false", help="Enable eye tracking (default: False)")
     parser.add_argument("-od", "--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
     parser.add_argument("-sc", "--staircase", type=str, default="both", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
+    parser.add_argument("-vs", "--variable_size", action="store_true", help="Enable target size variability during stimulus generation")
+    parser.add_argument("-vo", "--variable_orientation", action="store_true", help="Enable target orientation variability during stimulus generation")
+    parser.add_argument("-ft", "--fixed_targets", action="store_true", help="Enable fixed target display for testing phase")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     
-    exp = Experiment(num_trials=args.num_trials, eye_tracking=args.eye_tracking, task_duration=args.task_duration)
+    exp = Experiment(num_trials=args.num_trials, eye_tracking=args.eye_tracking, task_duration=args.task_duration, variable_target_size=args.variable_size)
 
     session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     save_destination = f"{args.output_dir}/{args.participant_id}/{session_id}"
