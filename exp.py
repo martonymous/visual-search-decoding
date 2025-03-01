@@ -6,6 +6,7 @@ from titta import Titta
 import argparse
 import os
 import random
+import h5py
 import numpy as np
 import pandas as pd
 import datetime
@@ -893,6 +894,10 @@ class Experiment:
                     for stim in stimuli:
                         stim.draw()
                     self.win.flip()
+
+                    # save image
+                    self.win.getMovieFrame()
+                    self.win.saveMovieFrames(f"{save_destination}/{trial_id}/result_{subtrial_id}.png")
                     break
                 wait(0.01)
 
@@ -1156,7 +1161,6 @@ def parse_args():
     parser.add_argument("-vo", "--variable_orientation", action="store_true", help="Enable target orientation variability during stimulus generation")
     parser.add_argument("-ft", "--fixed_targets", action="store_true", help="Enable fixed target display for testing phase")
     return parser.parse_args()
-
 
 if __name__ == "__main__":
     args = parse_args()
