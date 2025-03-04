@@ -12,15 +12,15 @@ import pandas as pd
 import datetime
 
 class Experiment:
-    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50, variable_target_size=False, seed=42):
+    def __init__(self, eye_tracking=False, num_trials=5, task_duration=15.0, target_present=True, dual_targets=True, color_difference=50, variable_target_size=False, variable_target_orientation=False, fixed_targets=False, seed=42, fullscreen=True):
         """Initialize the experiment with the specified parameters."""
         # Set random seed for reproducibility
         random.seed(seed)
         np.random.seed(seed)
 
         # Monitor configuration
-        self.monitor = monitors.Monitor("Monitor", width=53.0, distance=60.0)
-        self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="deg", fullscr=False, color="gray")
+        self.monitor = monitors.Monitor("Monitor", width=30.0, distance=60.0)
+        self.win = visual.Window(size=(1920, 1080), monitor=self.monitor, units="pix", fullscr=fullscreen, color="gray")
         self.mouse = event.Mouse(win=self.win)
         self.eye_tracking = eye_tracking
 
@@ -44,10 +44,10 @@ class Experiment:
         self.grid_x = 7
         self.grid_y = 4
         self.num_objects = self.grid_x * self.grid_y
-        self.grid_scaler_x = 13                                     # Grid spacing
-        self.grid_scaler_y = 12                                     # Grid spacing
-        self.jitter = 1.8                                           # Position jitter
-        self.object_scaler = 1.0                                    # Object size
+        self.grid_scaler_x = 270                                     # Grid spacing
+        self.grid_scaler_y = 250                                     # Grid spacing
+        self.jitter = 30                                           # Position jitter
+        self.object_scaler = 20.0                                    # Object size
         self.center_scaler = 1.4                                    # Center offset
         self.center_x = 0.5  * self.object_scaler * self.center_scaler
         self.center_y = 0.75 * self.object_scaler * self.center_scaler
@@ -55,10 +55,13 @@ class Experiment:
         # Experiment parameters
         self.task_duration = task_duration                          # Duration of search task in each trial
         self.target_present = target_present                        # Whether the target is present
+        self.fixed_targets = fixed_targets                          # Fixed target attributes for each trial
         self.dual_targets = dual_targets                            # Whether to show two targets in the same
         self.color_difference = color_difference                    # Degree of color differences
         self.num_trials = num_trials                                # Number of trials in the experiment
         self.variable_target_size = variable_target_size            # Whether to vary target size
+        self.variable_target_orientation = variable_target_orientation  # Whether to vary target orientation
+        self.gaze_scaler = 2.0                                      # Scaling factor for gaze data
 
         self.base_color = [127, 127, 127]    # RGB for gray
         self.saturated_colors = [
@@ -71,15 +74,15 @@ class Experiment:
         ]
 
         # range values for cointinuous attributes
-        self.size_range = [3.0, 4.5]
-        self.orientation_range = [-30, 30]
+        self.size_range = [2.75, 4.5]
+        self.orientation_range = [-20, 20]
         self.convex_range = [-1.5, 2.0]
         self.elongation_range = [0.75, 1.5]
 
         # create noise mask
-        visual.TextStim(self.win, text="Setting up experiment, wait just a moment!", bold = True, color="white", height=2.2, wrapWidth=70).draw()
+        visual.TextStim(self.win, text="Setting up experiment, wait just a moment!", bold = True, color="white", height=40, wrapWidth=700).draw()
         self.win.flip()
-        self.noise = self.create_checkered_noise_mask(1.2)
+        self.noise = self.create_checkered_noise_mask(40)
 
     @staticmethod
     def is_valid_sample(sample, keys):
@@ -338,15 +341,13 @@ class Experiment:
         - square_size: The size of the individual squares in the checkered pattern.
         """
         # Calculate the number of squares in each direction based on the display size, 36 is a magic number, not sure if it is proprtional to the screen size
-        # TODO: figure out magic number
-        num_squares_x = int(self.win.size[0] / (square_size*36)) + 1
-        num_squares_y = int(self.win.size[1] / (square_size*36)) + 1
+        num_squares_x = int(self.win.size[0] / (square_size)) + 1
+        num_squares_y = int(self.win.size[1] / (square_size)) + 1
 
         # Generate the grid positions
         squares = []
         for x in range(-num_squares_x, num_squares_x + 1):
             for y in range(-num_squares_y, num_squares_y + 1):
-                print(x, y)
                 # Calculate square center
                 square_x = x * square_size
                 square_y = y * square_size
@@ -402,9 +403,10 @@ class Experiment:
         if self.dual_targets:
             trial_subtype = random.random()
 
-        # Randomly select a color for the target; for each subtrial should be the same
-        color = random.choice(self.saturated_colors)
-        self.target_color = [max(min((int(color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
+        # If targets are not fixed, randomly select a color for the target; for each subtrial should be the same
+        if not self.fixed_targets:
+            color = random.choice(self.saturated_colors)
+            self.target_color = [max(min((int(color[x] + random.randint(-self.color_difference, self.color_difference))), 255), 0) for x in range(3)]
 
         for i, coordinate_pos in enumerate(grid_positions):
             pos = [None, None]
@@ -783,9 +785,9 @@ class Experiment:
             f=lambda x:"" if x==0 else f((x-1)//26)+chr((x-1)%26+ord("A"))
             subtrial_id = f(i+1)
 
-            visual.TextStim(self.win, text=instructions, color="white", height=1.5, wrapWidth=70, pos=(0,6)).draw()
-            visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=1.5, wrapWidth=70).draw()
-            visual.TextStim(self.win, text=instructions_2, color="white", height=1.5, wrapWidth=70, pos=(0,-6)).draw()
+            visual.TextStim(self.win, text=instructions, color="white", height=40, wrapWidth=1400, pos=(0,24)).draw()
+            visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=40, wrapWidth=1400).draw()
+            visual.TextStim(self.win, text=instructions_2, color="white", height=40, wrapWidth=1400, pos=(0,-24)).draw()
 
             self.win.flip()
             event.waitKeys(keyList=["space"])
@@ -805,7 +807,7 @@ class Experiment:
             core.wait(.25)
             
             # Show fixation cross
-            fixation = visual.TextStim(self.win, text="+", color="white", height=6.0)
+            fixation = visual.TextStim(self.win, text="+", color="white", height=60.0)
             fixation.draw()
             self.win.flip()
             wait(2.0)
@@ -827,15 +829,15 @@ class Experiment:
 
                 # more magic numbers for gaze position and scaling
                 # TODO: figure out a more automatic way of determining these magic numbers
-                left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 95
-                left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 65
-                right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 95
-                right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 65
+                left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 950 * self.gaze_scaler
+                left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 600 * self.gaze_scaler
+                right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 950 * self.gaze_scaler
+                right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 600 * self.gaze_scaler
                 # draw two circles at the gaze points
                 for stim in stimuli:
                     stim.draw()
-                visual.Circle(self.win, pos=(left_gaze_x, left_gaze_y), radius=1, lineColor='red', lineWidth=4).draw()
-                visual.Circle(self.win, pos=(right_gaze_x, right_gaze_y), radius=1, lineColor='blue', lineWidth=4).draw()
+                visual.Circle(self.win, pos=(left_gaze_x, left_gaze_y), radius=20, lineColor='red', lineWidth=4).draw()
+                visual.Circle(self.win, pos=(right_gaze_x, right_gaze_y), radius=20, lineColor='blue', lineWidth=4).draw()
                 self.win.flip()
 
                 # Wait for participant to press button
@@ -859,17 +861,17 @@ class Experiment:
                     # Find the most recent valid sample (last non-NaN sample in the list)
                     valid_sample = None
 
-                    for i in range(4, -1, -1):  # Iterate from most recent samples
-                        sample = {key: samples[key][i] for key in gaze_keys}
+                    for k in range(4, -1, -1):  # Iterate from most recent samples
+                        sample = {key: samples[key][k] for key in gaze_keys}
                         if self.is_valid_sample(sample, gaze_keys):
                             valid_sample = sample
                             break
 
                     if valid_sample is not None:
-                        left_gaze_x = (valid_sample['left_gaze_point_on_display_area_x'] - 0.5) * 95
-                        left_gaze_y = -(valid_sample['left_gaze_point_on_display_area_y'] - 0.5) * 65
-                        right_gaze_x = (valid_sample['right_gaze_point_on_display_area_x'] - 0.5) * 95
-                        right_gaze_y = -(valid_sample['right_gaze_point_on_display_area_y'] - 0.5) * 65
+                        left_gaze_x = (valid_sample['left_gaze_point_on_display_area_x'] - 0.5) * 950 * self.gaze_scaler 
+                        left_gaze_y = -(valid_sample['left_gaze_point_on_display_area_y'] - 0.5) * 650 * self.gaze_scaler
+                        right_gaze_x = (valid_sample['right_gaze_point_on_display_area_x'] - 0.5) * 950 * self.gaze_scaler
+                        right_gaze_y = -(valid_sample['right_gaze_point_on_display_area_y'] - 0.5) * 650 * self.gaze_scaler
 
                         # Print gaze data from the selected valid sample
                         print(f"Left gaze: ({left_gaze_x}, {left_gaze_y})\nRight gaze: ({right_gaze_x}, {right_gaze_y})")
@@ -881,6 +883,9 @@ class Experiment:
                     object_coords = [stimulus_data[j]["true_position"] for j in range(0, len(stimulus_data))]
                     nearest_object_position = min(object_coords, key=lambda x: np.sqrt((left_gaze_x - x[0])**2 + (left_gaze_y - x[1])**2))
 
+                    print(f"Nearest object position: {nearest_object_position}")
+                    print(f"Target position: {target_position}")
+                    print(i)
                     if nearest_object_position == target_position:
                         print("Gaze on target")
                         box_color = (0,255,0)
@@ -889,7 +894,7 @@ class Experiment:
                         print("Gaze not on target")
                         box_color = (255,0,0)
                         response = False
-                    visual.Rect(self.win, width=9, height=9, lineColor=box_color, lineWidth=5, pos=nearest_object_position).draw()
+                    visual.Rect(self.win, width=220, height=220, lineColor=box_color, lineWidth=5, pos=nearest_object_position).draw()
 
                     for stim in stimuli:
                         stim.draw()
@@ -907,7 +912,7 @@ class Experiment:
                 self.eyetracker.stop_recording()
 
             # Wait for participant to press space to proceed
-            visual.TextStim(self.win, text=f"Trial {trial_num} complete. Press SPACE to continue.", color="white").draw()
+            visual.TextStim(self.win, height=40, text=f"Trial {trial_num} complete. Press SPACE to continue.", color="white").draw()
             self.win.flip()
             event.waitKeys(keyList=["space"])
 
@@ -1150,22 +1155,24 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run an eye-tracking experiment.")
     parser.add_argument("--participant_id", type=str, default="test", help="Participant ID")
     parser.add_argument("--config_file", type=str, help="Path to the configuration file")
-    parser.add_argument("--training_trials", type=int, default=50, help="Number of training trials to run (default: 50), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("--training_trials", type=int, default=0, help="Number of training trials to run (default: 50), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("--testing_trials", type=int, default=100, help="Number of testing trials to run (default: 100), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("-bd", "--block_size", type=int, default=10, help="Number of trials per block for staircase procedure (default: 10), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("-td", "--task_duration", type=float, default=10.0, help="Maximum duration of each search task in seconds (default: 10.0)")
     parser.add_argument("-et", "--eye_tracking", action="store_false", help="Enable eye tracking (default: False)")
     parser.add_argument("-od", "--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
-    parser.add_argument("-sc", "--staircase", type=str, default="both", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
-    parser.add_argument("-vs", "--variable_size", action="store_true", help="Enable target size variability during stimulus generation")
+    parser.add_argument("-sd", "--starting_difficulty", type=int, default=60, help="Starting difficulty level for the task")
+    parser.add_argument("-da", "--difficulty_adjustment", action="store_true", help="Enable difficulty adjustment based on performance")
+    parser.add_argument("-sc", "--staircase", type=str, default="duration", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
+    parser.add_argument("-vs", "--variable_size", action="store_false", help="Enable target size variability during stimulus generation")
     parser.add_argument("-vo", "--variable_orientation", action="store_true", help="Enable target orientation variability during stimulus generation")
-    parser.add_argument("-ft", "--fixed_targets", action="store_true", help="Enable fixed target display for testing phase")
+    parser.add_argument("-ft", "--fixed_targets", action="store_false", help="Enable fixed target display for testing phase")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     
-    exp = Experiment(num_trials=args.num_trials, eye_tracking=args.eye_tracking, task_duration=args.task_duration, variable_target_size=args.variable_size)
+    exp = Experiment(num_trials=args.training_trials, eye_tracking=args.eye_tracking, task_duration=args.task_duration, variable_target_size=args.variable_size, variable_target_orientation=args.variable_orientation, fixed_targets=args.fixed_targets, color_difference=args.starting_difficulty)
 
     session_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     save_destination = f"{args.output_dir}/{args.participant_id}/{session_id}"
@@ -1173,25 +1180,25 @@ if __name__ == "__main__":
     testing_destination = f"{save_destination}/testing"
     os.makedirs(training_destination, exist_ok=True)
     os.makedirs(testing_destination, exist_ok=True)
+    
+    savepath = f"{training_destination}/results.csv"
+    pd.DataFrame(columns=["response", "duration", "difficulty"]).to_csv(savepath, index=True)
 
     responses, durations, difficulties = [], [], []
-    for trial in range(1, exp.training_trials + 1):
+    for trial in range(1, args.training_trials + 1):
         response, duration = exp.run_trial(training_destination, trial)
 
-        for r in response: responses.append(r)
-        for d in duration: durations.append(d)
-        for dif in range(len(response)): difficulties.append(exp.color_difference)
+        for a in range(len(response)):
+            responses.append(response[a])
+            durations.append(duration[a])
+            difficulties.append(exp.color_difference)
+            pd.DataFrame({
+                "response": [response[a]],
+                "duration": [duration[a]],
+                "difficulty": [exp.color_difference]
+            }).to_csv(savepath, mode='a', header=False, index=True)
 
         exp.staircase_adjustment(responses, durations, n=4, staircase=args.staircase)
-
-    # Save responses as a csv file
-    df = pd.DataFrame({
-        "trial": list(range(1, (2*exp.training_trials) + 1)),
-        "response": responses,
-        "duration": durations,
-        "difficulty": difficulties
-    })
-    df.to_csv(f"{training_destination}/responses.csv", index=False)
 
     # testing phase
     exp.target_color = random.choice(exp.saturated_colors)
@@ -1216,26 +1223,27 @@ if __name__ == "__main__":
         "target": True
     }
     fixed_targets = [first_target_attributes, second_target_attributes]
+
+    savepath = f"{testing_destination}/results.csv"
+    pd.DataFrame(columns=["response", "duration", "difficulty"]).to_csv(savepath, index=True)
     responses, durations, difficulties = [], [], []
-    for trial in range(1, exp.testing_trials + 1):
+    for trial in range(1, args.testing_trials + 1):
         response, duration = exp.run_trial(testing_destination, trial, fixed_targets=fixed_targets)
 
-        for r in response: responses.append(r)
-        for d in duration: durations.append(d)
-        for dif in range(len(response)): difficulties.append(exp.color_difference)
+        for a in range(len(response)):
+            responses.append(response[a])
+            durations.append(duration[a])
+            difficulties.append(exp.color_difference)
+            pd.DataFrame({
+                "response": [response[a]],
+                "duration": [duration[a]],
+                "difficulty": [exp.color_difference]
+            }).to_csv(savepath, mode='a', header=False, index=True)
 
         # check every 10 trials for difficulty adjustment
         # either on-the-go staircase (every trial) or block staircase (every X trials) procedure
-        if trial % args.block_size == 0:
+        if args.difficulty_adjustment and trial % args.block_size == 0:
             exp.staircase_adjustment(responses, durations, n=4, staircase=args.staircase)
-
-    # Save responses as a csv file
-    df = pd.DataFrame({
-        "trial": list(range(1, (2*exp.training_trials) + 1)),
-        "response": responses,
-        "duration": durations,
-        "difficulty": difficulties
-    })
 
     exp.win.close()
     core.quit()
