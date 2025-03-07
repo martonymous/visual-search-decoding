@@ -75,7 +75,7 @@ class Experiment:
 
         # range values for cointinuous attributes
         self.size_range = [2.75, 4.5]
-        self.orientation_range = [-20, 20]
+        self.orientation_range = [-15, 15]
         self.convex_range = [-1.5, 2.0]
         self.elongation_range = [0.75, 1.5]
 
@@ -785,9 +785,9 @@ class Experiment:
             f=lambda x:"" if x==0 else f((x-1)//26)+chr((x-1)%26+ord("A"))
             subtrial_id = f(i+1)
 
-            visual.TextStim(self.win, text=instructions, color="white", height=40, wrapWidth=1400, pos=(0,24)).draw()
+            visual.TextStim(self.win, text=instructions, color="white", height=40, wrapWidth=1400, pos=(0,204)).draw()
             visual.TextStim(self.win, text=bold_instructions, bold = True, color="white", height=40, wrapWidth=1400).draw()
-            visual.TextStim(self.win, text=instructions_2, color="white", height=40, wrapWidth=1400, pos=(0,-24)).draw()
+            visual.TextStim(self.win, text=instructions_2, color="white", height=40, wrapWidth=1400, pos=(0,-240)).draw()
 
             self.win.flip()
             event.waitKeys(keyList=["space"])
@@ -830,9 +830,9 @@ class Experiment:
                 # more magic numbers for gaze position and scaling
                 # TODO: figure out a more automatic way of determining these magic numbers
                 left_gaze_x = (samples['left_gaze_point_on_display_area_x'][0] - 0.5) * 950 * self.gaze_scaler
-                left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 600 * self.gaze_scaler
+                left_gaze_y = -(samples['left_gaze_point_on_display_area_y'][0] - 0.5) * 650 * self.gaze_scaler
                 right_gaze_x = (samples['right_gaze_point_on_display_area_x'][0] - 0.5) * 950 * self.gaze_scaler
-                right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 600 * self.gaze_scaler
+                right_gaze_y = -(samples['right_gaze_point_on_display_area_y'][0] - 0.5) * 650 * self.gaze_scaler
                 # draw two circles at the gaze points
                 for stim in stimuli:
                     stim.draw()
@@ -894,7 +894,7 @@ class Experiment:
                         print("Gaze not on target")
                         box_color = (255,0,0)
                         response = False
-                    visual.Rect(self.win, width=220, height=220, lineColor=box_color, lineWidth=5, pos=nearest_object_position).draw()
+                    visual.Rect(self.win, width=250, height=250, lineColor=box_color, lineWidth=5, pos=nearest_object_position).draw()
 
                     for stim in stimuli:
                         stim.draw()
@@ -1156,12 +1156,12 @@ def parse_args():
     parser.add_argument("--participant_id", type=str, default="test", help="Participant ID")
     parser.add_argument("--config_file", type=str, help="Path to the configuration file")
     parser.add_argument("--training_trials", type=int, default=0, help="Number of training trials to run (default: 50), keeping in mind every trial cotnains 2 subtrials")
-    parser.add_argument("--testing_trials", type=int, default=100, help="Number of testing trials to run (default: 100), keeping in mind every trial cotnains 2 subtrials")
+    parser.add_argument("--testing_trials", type=int, default=200, help="Number of testing trials to run (default: 100), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("-bd", "--block_size", type=int, default=10, help="Number of trials per block for staircase procedure (default: 10), keeping in mind every trial cotnains 2 subtrials")
     parser.add_argument("-td", "--task_duration", type=float, default=10.0, help="Maximum duration of each search task in seconds (default: 10.0)")
     parser.add_argument("-et", "--eye_tracking", action="store_false", help="Enable eye tracking (default: False)")
     parser.add_argument("-od", "--output_dir", type=str, default="data/tobii_recordings", help="Base directory for saving data")
-    parser.add_argument("-sd", "--starting_difficulty", type=int, default=60, help="Starting difficulty level for the task")
+    parser.add_argument("-sd", "--starting_difficulty", type=int, default=50, help="Starting difficulty level for the task")
     parser.add_argument("-da", "--difficulty_adjustment", action="store_true", help="Enable difficulty adjustment based on performance")
     parser.add_argument("-sc", "--staircase", type=str, default="duration", choices=["duration", "accuracy", "both"], help="Staircase procedure to use")
     parser.add_argument("-vs", "--variable_size", action="store_false", help="Enable target size variability during stimulus generation")
